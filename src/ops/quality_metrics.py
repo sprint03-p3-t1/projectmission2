@@ -202,7 +202,7 @@ class QualityMetrics:
                     AVG(structure_score) as avg_structure_score,
                     MIN(overall_score) as min_overall_score,
                     MAX(overall_score) as max_overall_score,
-                    STDDEV(overall_score) as std_overall_score
+                    (AVG(overall_score * overall_score) - AVG(overall_score) * AVG(overall_score)) as std_overall_score
                 FROM quality_evaluations
                 WHERE timestamp >= datetime('now', '-{} days')
             """.format(days))
