@@ -1,0 +1,71 @@
+# RFP RAG 시스템 설정 파일
+
+# 데이터 경로
+data:
+  json_dir: "data/preprocess/json"
+  output_dir: "data/processed"
+
+# 임베딩 설정
+embedding:
+  model_name: "BAAI/bge-m3"  # 다국어 지원 최신 모델
+  batch_size: 32
+  max_length: 512
+
+# 청킹 설정
+chunking:
+  chunk_size: 1000  # 토큰 단위
+  overlap: 200      # 중첩 크기
+  min_chunk_size: 100
+
+# 벡터 저장소 설정
+vector_store:
+  index_type: "faiss"  # faiss, chroma
+  similarity_metric: "cosine"
+  save_index: true
+  index_path: "data/processed/faiss_index"
+
+# 검색 설정
+retrieval:
+  top_k: 10
+  similarity_threshold: 0.5
+  enable_mmr: false  # Maximum Marginal Relevance
+  mmr_lambda: 0.7
+
+# LLM 설정
+llm:
+  provider: "openai"  # openai, anthropic, local
+  model: "gpt-3.5-turbo"
+  temperature: 0.1
+  max_tokens: 2000
+  timeout: 30
+
+# 프롬프트 설정
+prompts:
+  system_prompt: |
+    당신은 RFP(제안요청서) 분석 전문가입니다. 
+    정부기관과 기업의 입찰 공고 문서를 분석하여 컨설턴트들이 필요한 정보를 빠르게 파악할 수 있도록 도와주는 역할을 합니다.
+
+    다음 원칙을 지켜주세요:
+    1. 제공된 문서 정보만을 바탕으로 정확하게 답변하세요.
+    2. 문서에 없는 내용에 대해서는 "문서에서 해당 정보를 찾을 수 없습니다"라고 명확히 말하세요.
+    3. 사업명, 발주기관, 사업금액, 기간 등 핵심 정보를 포함하여 답변하세요.
+    4. 표나 목록이 있는 경우 구조화하여 보기 쉽게 정리하세요.
+    5. 입찰 참가 자격, 평가 기준, 제출 서류 등 중요한 요구사항은 놓치지 말고 포함하세요.
+
+# 로깅 설정
+logging:
+  level: "INFO"
+  file: "logs/rag_system.log"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# 캐싱 설정
+cache:
+  enable: true
+  ttl: 3600  # 1시간
+  max_size: 1000
+
+# 성능 설정
+performance:
+  enable_gpu: false
+  num_workers: 4
+  batch_processing: true
