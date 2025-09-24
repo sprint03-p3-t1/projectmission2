@@ -14,7 +14,7 @@ from sentence_transformers import SentenceTransformer
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from data_processing import DocumentChunk
+from ..data_processing import DocumentChunk
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -32,13 +32,16 @@ class RFPEmbedder:
     def initialize(self):
         """임베딩 모델 초기화"""
         logger.info(f"Loading embedding model: {self.model_name}")
-        # CPU 모드로 강제 실행
-        import os
-        os.environ["CUDA_VISIBLE_DEVICES"] = ""
-        self.model = SentenceTransformer(self.model_name, device='cpu')
+        
+        # GPU 사용 가능 여부 확인
+        import torch
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        logger.info(f"Using device: {device}")
+        
+        self.model = SentenceTransformer(self.model_name, device=device)
         self.dimension = self.model.get_sentence_embedding_dimension()
         self._is_ready = True
-        logger.info(f"Initialized embedding model: {self.model_name} (dimension: {self.dimension})")
+        logger.info(f"Initialized embedding model: {self.model_name} (dimension: {self.dimension}) on {device}")
     
     def is_ready(self) -> bool:
         """임베딩 모델 준비 상태 확인"""

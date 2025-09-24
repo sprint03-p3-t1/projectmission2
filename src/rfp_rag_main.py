@@ -8,9 +8,9 @@ import logging
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
-from data_processing import RFPDocument, RetrievalResult, RAGResponse, RFPDataLoader
-from retrieval import RFPRetriever
-from generation import RFPGenerator
+from .data_processing import RFPDocument, RetrievalResult, RAGResponse, RFPDataLoader
+from .retrieval import RFPRetriever
+from .generation import RFPGenerator
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -25,7 +25,8 @@ class RFPRAGSystem:
                  embedding_model: str = None,
                  llm_model: str = None,
                  chunk_size: int = 1000,
-                 overlap: int = 200):
+                 overlap: int = 200,
+                 cache_dir: str = None):
         """
         RFP RAG 시스템 초기화
         
@@ -51,7 +52,8 @@ class RFPRAGSystem:
         self.retriever = RFPRetriever(
             embedding_model=self.embedding_model,
             chunk_size=chunk_size,
-            overlap=overlap
+            overlap=overlap,
+            cache_dir=cache_dir
         )
         self.generator = RFPGenerator(
             api_key=self.openai_api_key,

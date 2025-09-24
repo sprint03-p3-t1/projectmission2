@@ -69,10 +69,10 @@ class Retriever:
         return str(hash(doc.page_content.strip()))
 
     def save_bm25_index(self):
-        path = os.makedirs(os.path.dirname(self.bm25_path), exist_ok=True)
-        with open(path, "wb") as f:
+        os.makedirs(os.path.dirname(self.bm25_path), exist_ok=True)
+        with open(self.bm25_path, "wb") as f:
             pickle.dump(self.bm25, f)
-        logging.info(f"✅ BM25 인덱스 저장 완료: {path}")
+        logging.info(f"✅ BM25 인덱스 저장 완료: {self.bm25_path}")
 
     def load_bm25_index(self):
         path = self.bm25_path

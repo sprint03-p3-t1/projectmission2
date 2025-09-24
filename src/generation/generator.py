@@ -109,10 +109,27 @@ class RFPGenerator(RAGSystemInterface):
                 self.conversation_history.append({"role": "user", "content": question})
                 self.conversation_history.append({"role": "assistant", "content": answer})
             
+            # RetrievalResult 객체들을 딕셔너리로 변환
+            chunks_dict = []
+            for result in retrieved_results:
+                chunk_dict = {
+                    "chunk": {
+                        "chunk_id": result.chunk.chunk_id,
+                        "doc_id": result.chunk.doc_id,
+                        "content": result.chunk.content,
+                        "chunk_type": result.chunk.chunk_type,
+                        "page_number": result.chunk.page_number,
+                        "metadata": result.chunk.metadata
+                    },
+                    "score": result.score,
+                    "rank": result.rank
+                }
+                chunks_dict.append(chunk_dict)
+            
             return RAGResponse(
                 question=question,
                 answer=answer,
-                retrieved_chunks=retrieved_results,
+                retrieved_chunks=chunks_dict,
                 generation_metadata=generation_metadata
             )
         
@@ -167,7 +184,8 @@ class RFPGenerator(RAGSystemInterface):
 {context}
 
 위 정보를 바탕으로 질문에 답변해 주세요.
-문서에 없는 내용에 대해서는 "문서에서 해당 정보를 찾을 수 없습니다"라고 간단히 말씀해 주세요.
+문서에 정보가 있으면 사업명, 발주기관, 사업금액, 기간 등 핵심 정보를 포함하여 상세하게 답변하세요.
+문서에 없는 내용에 대해서는 "문서에서 해당 정보를 찾을 수 없습니다"라고 명확히 말씀해 주세요.
 """
     
     def _get_system_prompt(self) -> str:
