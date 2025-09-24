@@ -100,7 +100,29 @@ def initialize_config():
 @st.cache_resource
 def initialize_system_selector(config):
     """시스템 선택기 초기화 (캐시됨)"""
-    return SystemSelector(config)
+    logger.info("🔧 시스템 선택기 초기화 시작")
+    system_selector = SystemSelector(config)
+    
+    # 자동으로 모든 시스템 초기화
+    logger.info("🚀 모든 시스템 자동 초기화 시작")
+    try:
+        # FAISS 시스템 초기화
+        logger.info("📊 FAISS 시스템 초기화 중...")
+        system_selector.initialize_system("faiss")
+        logger.info("✅ FAISS 시스템 초기화 완료")
+        
+        # ChromaDB 시스템 초기화
+        logger.info("🔍 ChromaDB 시스템 초기화 중...")
+        system_selector.initialize_system("chromadb")
+        logger.info("✅ ChromaDB 시스템 초기화 완료")
+        
+        logger.info("🎉 모든 시스템 자동 초기화 완료!")
+        
+    except Exception as e:
+        logger.error(f"❌ 시스템 초기화 중 오류 발생: {e}")
+        # 초기화 실패해도 시스템 선택기는 반환 (수동 초기화 가능)
+    
+    return system_selector
 
 def display_header():
     """헤더 표시"""
@@ -108,6 +130,7 @@ def display_header():
     <div class="main-header">
         <h1>🤖 RFP RAG System - 통합 검색</h1>
         <p>FAISS vs ChromaDB 하이브리드 검색 시스템 비교</p>
+        <p>🚀 자동 초기화 지원 - 서버 시작 시 모든 시스템이 자동으로 준비됩니다</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -142,9 +165,11 @@ def display_system_selector(config, system_selector):
     current_status = system_status[selected_system]
     
     if current_status["initialized"]:
-        st.sidebar.success(f"✅ {system_info['name']} 초기화됨")
+        st.sidebar.success(f"✅ {system_info['name']} 자동 초기화됨")
+        st.sidebar.info("🚀 서버 시작 시 자동으로 초기화되었습니다")
     else:
         st.sidebar.warning(f"⚠️ {system_info['name']} 초기화 필요")
+        st.sidebar.error("❌ 자동 초기화 실패 - 수동 초기화가 필요합니다")
     
     return selected_system
 
@@ -345,12 +370,15 @@ def display_system_management(system_selector):
         
         with st.sidebar.expander(f"{system_info['name']} 상태"):
             if status["initialized"]:
-                st.success("✅ 초기화됨")
+                st.success("✅ 자동 초기화됨")
+                st.info("🚀 서버 시작 시 자동으로 초기화되었습니다")
             else:
                 st.warning("⚠️ 초기화 필요")
+                st.error("❌ 자동 초기화 실패")
             
             st.markdown(f"**모델**: {system_info['embedder_model']}")
             st.markdown(f"**벡터 DB**: {system_info['vector_db_type']}")
+            st.markdown(f"**초기화 방식**: {'자동' if status['initialized'] else '수동 필요'}")
             
             if st.button(f"🗑️ {system_name} 캐시 정리", key=f"clear_{system_name}"):
                 with st.spinner("캐시 정리 중..."):
