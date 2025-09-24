@@ -17,6 +17,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data_processing import RetrievalResult, RAGResponse, RAGSystemInterface
+from ops import get_quality_metrics, get_quality_monitor
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +36,11 @@ class RFPGenerator(RAGSystemInterface):
         self.client = None
         self.conversation_history: List[Dict[str, str]] = []
         self._is_ready = False
+        
+        # MLOps 구성 요소 초기화
+        self.quality_metrics = get_quality_metrics()
+        self.quality_monitor = get_quality_monitor()
+        self.enable_quality_evaluation = True
     
     def initialize(self):
         """제네레이터 초기화"""
@@ -125,6 +131,36 @@ class RFPGenerator(RAGSystemInterface):
                     "rank": result.rank
                 }
                 chunks_dict.append(chunk_dict)
+            
+            # 품질 평가 수행 (옵션)
+            quality_evaluation = None
+            if self.enable_quality_evaluation:
+                try:
+                    quality_evaluation = self.evaluate_response_quality(question, answer, context)
+                    
+                    # 품질 평가 결과 저장
+                    evaluation_id = self.quality_metrics.store_evaluation(
+                        question=question,
+                        answer=answer,
+                        context=context,
+                        scores=quality_evaluation["scores"],
+                        overall_score=quality_evaluation["overall_score"],
+                        suggestions=quality_evaluation["suggestions"],
+                        evaluation_text=quality_evaluation["evaluation_text"],
+                        model_name=self.model,
+                        user_id=None,  # TODO: 사용자 ID 추가
+                        session_id=None  # TODO: 세션 ID 추가
+                    )
+                    
+                    # 생성 메타데이터에 품질 평가 정보 추가
+                    generation_metadata["quality_evaluation"] = quality_evaluation
+                    generation_metadata["evaluation_id"] = evaluation_id
+                    
+                    logger.info(f"Quality evaluation completed: {quality_evaluation['overall_score']:.3f}")
+                    
+                except Exception as e:
+                    logger.error(f"Quality evaluation failed: {e}")
+                    quality_evaluation = {"error": str(e)}
             
             return RAGResponse(
                 question=question,
@@ -298,6 +334,146 @@ class RFPGenerator(RAGSystemInterface):
         except Exception as e:
             logger.error(f"Error generating comparison: {e}")
             return "비교 분석 생성 중 오류가 발생했습니다."
+    
+    def evaluate_response_quality(self, question: str, answer: str, context: str) -> Dict[str, Any]:
+        """LLM 기반 답변 품질 평가"""
+        if not self.is_ready():
+            raise RuntimeError("Generator is not initialized. Call initialize() first.")
+        
+        evaluation_prompt = f"""
+다음 질문과 답변을 평가해주세요. 각 항목을 0-1 점수로 평가하고, 개선 제안을 해주세요.
+
+질문: {question}
+
+답변: {answer}
+
+참고 문서: {context[:2000]}...
+
+평가 기준:
+1. 관련성 (Relevance): 답변이 질문에 얼마나 관련있는가? (0-1)
+2. 완성도 (Completeness): 질문에 대한 답변이 얼마나 완전한가? (0-1)
+3. 정확성 (Accuracy): 답변 내용이 얼마나 정확한가? (0-1)
+4. 명확성 (Clarity): 답변이 얼마나 이해하기 쉬운가? (0-1)
+5. 구조화 (Structure): 답변이 얼마나 체계적으로 구성되었는가? (0-1)
+
+응답 형식:
+관련성: 0.85
+완성도: 0.78
+정확성: 0.92
+명확성: 0.80
+구조화: 0.75
+종합점수: 0.82
+개선제안: [구체적인 개선 제안 3가지]
+"""
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "당신은 답변 품질 평가 전문가입니다. 객관적이고 정확한 평가를 해주세요."},
+                    {"role": "user", "content": evaluation_prompt}
+                ],
+                temperature=0.1,  # 일관된 평가를 위해 낮은 temperature
+                max_tokens=500
+            )
+            
+            evaluation_text = response.choices[0].message.content
+            
+            # 평가 결과 파싱
+            scores = self._parse_evaluation_scores(evaluation_text)
+            suggestions = self._parse_improvement_suggestions(evaluation_text)
+            
+            # 종합 점수 계산
+            overall_score = sum(scores.values()) / len(scores) if scores else 0.0
+            
+            return {
+                "scores": scores,
+                "overall_score": overall_score,
+                "suggestions": suggestions,
+                "evaluation_text": evaluation_text,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error evaluating response quality: {e}")
+            return {
+                "scores": {"relevance": 0.0, "completeness": 0.0, "accuracy": 0.0, "clarity": 0.0, "structure": 0.0},
+                "overall_score": 0.0,
+                "suggestions": ["평가 중 오류가 발생했습니다."],
+                "evaluation_text": "평가 실패",
+                "timestamp": datetime.now().isoformat(),
+                "error": str(e)
+            }
+    
+    def _parse_evaluation_scores(self, evaluation_text: str) -> Dict[str, float]:
+        """평가 텍스트에서 점수 추출"""
+        scores = {}
+        lines = evaluation_text.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if ':' in line and any(keyword in line.lower() for keyword in ['관련성', '완성도', '정확성', '명확성', '구조화']):
+                try:
+                    key_value = line.split(':')
+                    if len(key_value) == 2:
+                        key = key_value[0].strip()
+                        value = float(key_value[1].strip())
+                        scores[key] = value
+                except ValueError:
+                    continue
+        
+        return scores
+    
+    def _parse_improvement_suggestions(self, evaluation_text: str) -> List[str]:
+        """평가 텍스트에서 개선 제안 추출"""
+        suggestions = []
+        lines = evaluation_text.split('\n')
+        
+        in_suggestions = False
+        for line in lines:
+            line = line.strip()
+            if '개선제안' in line or '개선 제안' in line:
+                in_suggestions = True
+                continue
+            if in_suggestions and line:
+                if line.startswith('-') or line.startswith('•') or line.startswith('*'):
+                    suggestions.append(line[1:].strip())
+                elif line and not any(keyword in line.lower() for keyword in ['관련성', '완성도', '정확성', '명확성', '구조화', '종합점수']):
+                    suggestions.append(line)
+        
+        return suggestions[:3] if suggestions else ["구체적인 개선 제안을 제공할 수 없습니다."]
+    
+    def enable_quality_evaluation(self, enable: bool = True):
+        """품질 평가 활성화/비활성화"""
+        self.enable_quality_evaluation = enable
+        logger.info(f"Quality evaluation {'enabled' if enable else 'disabled'}")
+    
+    def get_quality_statistics(self, days: int = 7) -> Dict[str, Any]:
+        """품질 통계 조회"""
+        return self.quality_metrics.get_quality_statistics(days)
+    
+    def get_quality_trends(self, days: int = 30) -> Dict[str, Any]:
+        """품질 트렌드 조회"""
+        trends_df = self.quality_metrics.get_quality_trends(days)
+        return trends_df.to_dict('records') if not trends_df.empty else []
+    
+    def get_quality_insights(self) -> Dict[str, Any]:
+        """품질 인사이트 조회"""
+        return self.quality_monitor.get_quality_insights()
+    
+    def start_quality_monitoring(self):
+        """품질 모니터링 시작"""
+        self.quality_monitor.start_monitoring()
+        logger.info("Quality monitoring started")
+    
+    def stop_quality_monitoring(self):
+        """품질 모니터링 중지"""
+        self.quality_monitor.stop_monitoring()
+        logger.info("Quality monitoring stopped")
+    
+    def get_monitoring_status(self) -> Dict[str, Any]:
+        """모니터링 상태 조회"""
+        return self.quality_monitor.get_monitoring_status()
 
 # 제네레이션 모듈 단독 테스트 함수
 def test_generator_standalone():
@@ -341,6 +517,25 @@ def test_generator_standalone():
     print(f"질문: {response.question}")
     print(f"답변: {response.answer}")
     print(f"메타데이터: {response.generation_metadata}")
+    
+    # 품질 평가 결과 확인
+    if "quality_evaluation" in response.generation_metadata:
+        quality_eval = response.generation_metadata["quality_evaluation"]
+        print(f"\n=== 품질 평가 결과 ===")
+        print(f"종합 점수: {quality_eval['overall_score']:.3f}")
+        print(f"세부 점수: {quality_eval['scores']}")
+        print(f"개선 제안: {quality_eval['suggestions']}")
+    
+    # 품질 통계 조회
+    print(f"\n=== 품질 통계 (최근 7일) ===")
+    stats = generator.get_quality_statistics(days=7)
+    print(f"평균 품질 점수: {stats['avg_overall_score']:.3f}")
+    print(f"총 평가 수: {stats['total_evaluations']}")
+    
+    # 품질 인사이트 조회
+    print(f"\n=== 품질 인사이트 ===")
+    insights = generator.get_quality_insights()
+    print(f"인사이트: {insights.get('insights', [])}")
 
 if __name__ == "__main__":
     test_generator_standalone()

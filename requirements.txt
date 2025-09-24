@@ -97,3 +97,15 @@ nbimporter>=0.3.4
 
 # ===== 로깅 및 모니터링 (선택사항) =====
 loguru>=0.6.0
+
+# ===== MLOps 및 품질 평가 =====
+# 데이터베이스
+sqlite3  # Python 내장 모듈
+# 데이터 분석 및 시각화
+plotly>=5.0.0
+matplotlib>=3.5.0
+seaborn>=0.11.0
+# Excel 파일 처리
+openpyxl>=3.0.0
+# 통계 분석
+scipy>=1.9.0
