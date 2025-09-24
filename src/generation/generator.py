@@ -27,23 +27,41 @@ class RFPGenerator(RAGSystemInterface):
     """RFP 응답 생성기 - 본인 작업 영역"""
     
     def __init__(self, api_key: str = None, model: str = None, temperature: float = None, max_tokens: int = None):
-        # 환경변수에서 설정값 가져오기
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.model = model or os.getenv("MODEL_NAME", "gpt-3.5-turbo")
-        self.temperature = temperature or float(os.getenv("TEMPERATURE", "0.1"))
-        self.max_tokens = max_tokens or int(os.getenv("MAX_TOKENS", "2000"))
+        # YAML 설정에서 기본값 가져오기
+        try:
+            from src.config.yaml_config import yaml_config
+            config = yaml_config.get_generation_config()
+            
+            # 파라미터가 제공되지 않은 경우 YAML 설정 사용
+            self.api_key = api_key or os.getenv(config.get('api_key_env', 'OPENAI_API_KEY'))
+            self.model = model or config.get('model', 'gpt-4.1-mini')
+            self.temperature = temperature or config.get('temperature', 0.1)
+            self.max_tokens = max_tokens or config.get('max_tokens', 2000)
+            
+            # MLOps 설정
+            self.enable_quality_evaluation = config.get('enable_quality_evaluation', True)
+            self.enable_conversation_logging = config.get('enable_conversation_logging', True)
+            self.conversation_history_limit = config.get('conversation_history_limit', 6)
+            
+        except ImportError:
+            # 폴백: 환경변수에서 설정값 가져오기
+            self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+            self.model = model or os.getenv("MODEL_NAME", "gpt-4.1-mini")
+            self.temperature = temperature or float(os.getenv("TEMPERATURE", "0.1"))
+            self.max_tokens = max_tokens or int(os.getenv("MAX_TOKENS", "2000"))
+            self.enable_quality_evaluation = True
+            self.enable_conversation_logging = True
+            self.conversation_history_limit = 6
         
         self.client = None
         self.conversation_history: List[Dict[str, str]] = []
         self._is_ready = False
+        self.current_session_id = None
         
         # MLOps 구성 요소 초기화
         self.quality_metrics = get_quality_metrics()
         self.quality_monitor = get_quality_monitor()
         self.conversation_tracker = get_conversation_tracker()
-        self.enable_quality_evaluation = True
-        self.enable_conversation_logging = True
-        self.current_session_id = None
     
     def initialize(self):
         """제네레이터 초기화"""
@@ -78,8 +96,8 @@ class RFPGenerator(RAGSystemInterface):
         messages = [{"role": "system", "content": system_prompt}]
         
         if use_conversation_history and self.conversation_history:
-            # 최근 6턴의 대화만 유지 (메모리 관리)
-            messages.extend(self.conversation_history[-6:])
+            # YAML 설정에서 지정된 대화 히스토리 제한 사용
+            messages.extend(self.conversation_history[-self.conversation_history_limit:])
         
         # 사용자 쿼리와 컨텍스트
         user_message = self._create_user_message(question, context)

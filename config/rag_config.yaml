@@ -4,6 +4,7 @@
 data:
   json_dir: "data/preprocess/json"
   output_dir: "data/processed"
+  ops_dir: "data/ops"  # MLOps 데이터 저장소
 
 # 임베딩 설정
 embedding:
@@ -34,10 +35,11 @@ retrieval:
 # LLM 설정
 llm:
   provider: "openai"  # openai, anthropic, local
-  model: "gpt-3.5-turbo"
+  model: "gpt-4.1-mini"  # generation에서 사용하는 모델
   temperature: 0.1
   max_tokens: 2000
   timeout: 30
+  api_key_env: "OPENAI_API_KEY"  # 환경변수명
 
 # 프롬프트 설정
 prompts:
@@ -69,3 +71,20 @@ performance:
   enable_gpu: false
   num_workers: 4
   batch_processing: true
+
+# MLOps 설정
+mlops:
+  conversation_logs_db: "data/ops/conversation_logs.db"
+  quality_metrics_db: "data/ops/quality_metrics.db"
+  monitoring_interval: 300  # 5분
+  enable_quality_evaluation: true
+  enable_conversation_logging: true
+  conversation_history_limit: 6  # 최근 대화 히스토리 유지 개수
+  alert_thresholds:
+    overall_score_low: 0.6
+    overall_score_critical: 0.4
+    accuracy_score_low: 0.5
+    relevance_score_low: 0.5
+    completeness_score_low: 0.5
+    clarity_score_low: 0.5
+    structure_score_low: 0.5
