@@ -1,0 +1,36 @@
+[project]
+name = "projectmission2"
+version = "0.1.0"
+description = "project mission2"
+authors = [
+    { name = "haru0", email = "haru0.ever@gmail.com" }
+]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "torch>=1.9.0",
+    "transformers>=4.20.0",
+    "sentence-transformers>=2.2.0",
+    "langchain>=0.1.0",
+    "langchain-huggingface>=0.0.3",
+    "langchain-chroma>=0.1.0",
+    "chromadb>=0.4.0",
+    "rank-bm25>=0.2.2",
+    "kiwipiepy>=0.16.0",
+    "konlpy>=0.6.0",
+    "pandas>=1.5.0",
+    "numpy>=1.21.0",
+    "aiofiles>=23.0.0",
+    "tqdm>=4.64.0",
+    "more-itertools>=9.0.0"
+]
+
+packages = [
+    { include = "src" }
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

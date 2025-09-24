@@ -1,0 +1,48 @@
+# 리팩토링된 리트리버 시스템 필수 패키지들
+
+# 핵심 프레임워크
+torch>=1.9.0
+transformers>=4.20.0
+sentence-transformers>=2.2.0
+
+# LangChain 생태계
+langchain>=0.1.0
+langchain-huggingface>=0.0.3
+langchain-chroma>=0.1.0
+
+# 벡터 데이터베이스
+chromadb>=0.4.0
+
+# 검색 알고리즘
+rank-bm25>=0.2.2
+
+# 한국어 처리
+kiwipiepy>=0.16.0
+konlpy>=0.6.0
+
+# 데이터 처리
+pandas>=1.5.0
+numpy>=1.21.0
+
+# 비동기 파일 처리
+aiofiles>=23.0.0
+
+# 진행률 표시
+tqdm>=4.64.0
+
+# 유틸리티
+more-itertools>=9.0.0
+
+# 개발 및 테스팅 (선택사항)
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+black>=22.0.0
+flake8>=5.0.0
+mypy>=1.0.0
+
+# Jupyter 노트북 (선택사항)
+jupyter>=1.0.0
+nbimporter>=0.3.4
+
+# 로깅 및 모니터링 (선택사항)
+loguru>=0.6.0
