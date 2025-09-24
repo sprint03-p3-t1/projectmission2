@@ -10,7 +10,30 @@ import logging
 from typing import Dict, Any, List
 import asyncio
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 import numpy as np
+
+# 한글 폰트 설정
+plt.rcParams['font.family'] = 'DejaVu Sans'
+plt.rcParams['axes.unicode_minus'] = False
+
+# 한글 폰트 설정 (시스템에 설치된 폰트 사용)
+try:
+    # Ubuntu/Debian 시스템에서 사용 가능한 한글 폰트들
+    korean_fonts = ['NanumGothic', 'NanumBarunGothic', 'Malgun Gothic', 'AppleGothic', 'Noto Sans CJK KR']
+    available_fonts = [f.name for f in fm.fontManager.ttflist]
+    
+    for font in korean_fonts:
+        if font in available_fonts:
+            plt.rcParams['font.family'] = font
+            break
+    else:
+        # 폰트가 없으면 기본 폰트 사용하고 경고
+        print("⚠️ 한글 폰트를 찾을 수 없습니다. 기본 폰트를 사용합니다.")
+        plt.rcParams['font.family'] = 'DejaVu Sans'
+except Exception as e:
+    print(f"⚠️ 폰트 설정 중 오류: {e}")
+    plt.rcParams['font.family'] = 'DejaVu Sans'
 
 import sys
 from pathlib import Path
@@ -585,8 +608,8 @@ def display_quality_dashboard():
                         file_name=output_path,
                         mime="text/html"
                     )
-                     except Exception as e:
-                         st.error(f"내보내기 실패: {e}")
+            except Exception as e:
+                st.error(f"내보내기 실패: {e}")
 
 def display_conversation_analytics_dashboard():
     """대화 로그 분석 대시보드 표시"""
@@ -797,12 +820,20 @@ def display_conversation_analytics_dashboard():
                 st.markdown("#### 품질 점수 분포")
                 fig, ax = plt.subplots(figsize=(10, 6))
                 ax.hist(quality_scores, bins=20, alpha=0.7, color='skyblue', edgecolor='black')
-                ax.set_xlabel('품질 점수')
-                ax.set_ylabel('빈도')
-                ax.set_title('대화 품질 점수 분포')
+                ax.set_xlabel('품질 점수', fontsize=12)
+                ax.set_ylabel('빈도', fontsize=12)
+                ax.set_title('대화 품질 점수 분포', fontsize=14, fontweight='bold')
                 ax.axvline(np.mean(quality_scores), color='red', linestyle='--', label=f'평균: {np.mean(quality_scores):.3f}')
-                ax.legend()
+                ax.legend(fontsize=10)
+                ax.grid(True, alpha=0.3)
+                
+                # 한글 폰트 설정 적용
+                for label in ax.get_xticklabels() + ax.get_yticklabels():
+                    label.set_fontsize(10)
+                
+                plt.tight_layout()
                 st.pyplot(fig)
+                plt.close(fig)  # 메모리 절약
             
             # 시스템별 성능 비교
             system_performance = {}
@@ -837,6 +868,40 @@ def display_conversation_analytics_dashboard():
     
     with tab4:
         st.markdown("### 대화 상세 정보")
+        
+        # 대화 선택 인터페이스 추가
+        try:
+            # 최근 대화 목록 가져오기
+            recent_conversations = conversation_tracker.get_recent_conversations(limit=50)
+            
+            if recent_conversations:
+                st.markdown("#### 대화 선택")
+                
+                # 대화 선택 드롭다운
+                conversation_options = {}
+                for conv in recent_conversations:
+                    display_text = f"[{conv['question_timestamp']}] {conv['question'][:50]}... (시스템: {conv['system_type']})"
+                    conversation_options[display_text] = conv['log_id']
+                
+                selected_display = st.selectbox(
+                    "대화를 선택하세요:",
+                    options=list(conversation_options.keys()),
+                    index=0,
+                    help="상세 정보를 보고 싶은 대화를 선택하세요"
+                )
+                
+                if selected_display:
+                    selected_conversation_id = conversation_options[selected_display]
+                    st.session_state.selected_conversation_id = selected_conversation_id
+                    
+                    # 상세보기 버튼
+                    if st.button("📋 상세 정보 보기", key="view_details_button"):
+                        st.rerun()
+            else:
+                st.info("표시할 대화가 없습니다.")
+                
+        except Exception as e:
+            st.error(f"대화 목록 조회 중 오류가 발생했습니다: {e}")
         
         # 선택된 대화 상세 정보 표시
         if hasattr(st.session_state, 'selected_conversation_id'):
@@ -914,8 +979,8 @@ def main():
         # 시스템 선택
         selected_system = display_system_selector(config, system_selector)
         
-                # 메인 탭 생성
-                tab1, tab2, tab3, tab4 = st.tabs(["🔍 질의응답", "📊 품질 대시보드", "📈 대화 로그 분석", "⚙️ 시스템 관리"])
+        # 메인 탭 생성
+        tab1, tab2, tab3, tab4 = st.tabs(["🔍 질의응답", "📊 품질 대시보드", "📈 대화 로그 분석", "⚙️ 시스템 관리"])
         
         with tab1:
             # 비교 모드 설정

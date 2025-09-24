@@ -13,6 +13,20 @@ import logging
 
 from .quality_metrics import QualityMetrics
 
+# 한글 폰트 설정을 위한 기본 레이아웃
+KOREAN_LAYOUT = {
+    'font': {
+        'family': 'Arial, sans-serif',  # 한글 지원 폰트
+        'size': 12
+    },
+    'title': {
+        'font': {
+            'family': 'Arial, sans-serif',
+            'size': 16
+        }
+    }
+}
+
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -146,17 +160,18 @@ class QualityVisualizer:
                 row=2, col=1
             )
             
-            # 레이아웃 업데이트
+            # 레이아웃 업데이트 (한글 폰트 적용)
             fig.update_layout(
                 title={
                     'text': f'품질 트렌드 분석 (최근 {days}일)',
                     'x': 0.5,
                     'xanchor': 'center',
-                    'font': {'size': 16}
+                    'font': {'size': 16, 'family': 'Arial, sans-serif'}
                 },
                 height=700,
                 showlegend=True,
-                margin=dict(t=80, b=40, l=40, r=40)
+                margin=dict(t=80, b=40, l=40, r=40),
+                font={'family': 'Arial, sans-serif', 'size': 12}
             )
             
             # X축 설정
@@ -203,11 +218,12 @@ class QualityVisualizer:
                     'text': f'품질 분포 (최근 {days}일)',
                     'x': 0.5,
                     'xanchor': 'center',
-                    'font': {'size': 16}
+                    'font': {'size': 16, 'family': 'Arial, sans-serif'}
                 },
                 height=500,
                 margin=dict(t=60, b=40, l=40, r=40),
-                annotations=[dict(text=f'총 {sum(values)}개', x=0.5, y=0.5, font_size=16, showarrow=False)]
+                font={'family': 'Arial, sans-serif', 'size': 12},
+                annotations=[dict(text=f'총 {sum(values)}개', x=0.5, y=0.5, font_size=16, font_family='Arial, sans-serif', showarrow=False)]
             )
             
             return fig

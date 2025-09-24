@@ -16,8 +16,17 @@ logger = logging.getLogger(__name__)
 class ConversationTracker:
     """대화 추적 및 로깅 시스템"""
     
-    def __init__(self, db_path: str = "data/conversation_logs.db"):
+    def __init__(self, db_path: str = None):
         """대화 추적기 초기화"""
+        if db_path is None:
+            # YAML 설정에서 경로 가져오기
+            try:
+                from src.config.yaml_config import yaml_config
+                db_path = yaml_config.get_conversation_logs_db_path()
+            except ImportError:
+                # 폴백: 기본 경로 사용
+                db_path = "data/ops/conversation_logs.db"
+        
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_database()

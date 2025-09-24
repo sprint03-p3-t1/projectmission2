@@ -22,9 +22,14 @@ class QualityMetrics:
     def __init__(self, db_path: str = None):
         """품질 메트릭스 초기화"""
         if db_path is None:
-            # 기본 데이터베이스 경로 설정
-            project_root = Path(__file__).resolve().parent.parent.parent
-            db_path = str(project_root / "data" / "quality_metrics.db")
+            # YAML 설정에서 경로 가져오기
+            try:
+                from src.config.yaml_config import yaml_config
+                db_path = yaml_config.get_quality_metrics_db_path()
+            except ImportError:
+                # 폴백: 기본 경로 사용
+                project_root = Path(__file__).resolve().parent.parent.parent
+                db_path = str(project_root / "data" / "ops" / "quality_metrics.db")
         
         self.db_path = db_path
         self._init_database()
