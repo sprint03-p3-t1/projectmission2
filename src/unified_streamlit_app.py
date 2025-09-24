@@ -24,6 +24,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from src.config.unified_config import UnifiedConfig
 from src.systems.system_selector import SystemSelector
 from src.generation.generator import RFPGenerator
+from src.ops import get_quality_visualizer, get_quality_metrics, get_quality_monitor
 
 # 로깅 설정
 import os
@@ -386,6 +387,205 @@ def display_system_management(system_selector):
                 st.success("캐시 정리 완료!")
                 st.rerun()
 
+def display_quality_evaluation_result(quality_eval: Dict[str, Any]):
+    """품질 평가 결과 표시"""
+    if not quality_eval or "error" in quality_eval:
+        return
+    
+    st.markdown("### 📊 품질 평가 결과")
+    
+    # 종합 점수 표시
+    overall_score = quality_eval.get("overall_score", 0)
+    score_color = "green" if overall_score >= 0.8 else "orange" if overall_score >= 0.6 else "red"
+    
+    col1, col2, col3 = st.columns([1, 1, 2])
+    
+    with col1:
+        st.metric(
+            "종합 점수",
+            f"{overall_score:.3f}",
+            delta=f"{overall_score - 0.7:.3f}" if overall_score > 0.7 else None
+        )
+    
+    with col2:
+        # 점수 등급 표시
+        if overall_score >= 0.8:
+            st.success("🟢 우수")
+        elif overall_score >= 0.6:
+            st.warning("🟡 보통")
+        else:
+            st.error("🔴 개선 필요")
+    
+    with col3:
+        # 세부 점수 표시
+        scores = quality_eval.get("scores", {})
+        if scores:
+            st.markdown("**세부 점수:**")
+            for metric, score in scores.items():
+                st.markdown(f"• {metric}: {score:.3f}")
+    
+    # 개선 제안 표시
+    suggestions = quality_eval.get("suggestions", [])
+    if suggestions:
+        st.markdown("#### 💡 개선 제안")
+        for i, suggestion in enumerate(suggestions, 1):
+            st.info(f"**{i}.** {suggestion}")
+
+def display_quality_dashboard():
+    """품질 평가 대시보드 표시"""
+    st.markdown("## 📊 품질 평가 대시보드")
+    
+    # 품질 평가 도구 초기화
+    quality_visualizer = get_quality_visualizer()
+    quality_metrics = get_quality_metrics()
+    quality_monitor = get_quality_monitor()
+    
+    # 사이드바 - 대시보드 설정
+    with st.sidebar:
+        st.markdown("### 📈 대시보드 설정")
+        
+        # 기간 선택
+        days = st.selectbox(
+            "분석 기간",
+            options=[1, 3, 7, 14, 30],
+            index=2,  # 기본값: 7일
+            help="품질 데이터 분석 기간을 선택하세요"
+        )
+        
+        # 모니터링 상태
+        st.markdown("### 🔍 모니터링 상태")
+        monitoring_status = quality_monitor.get_monitoring_status()
+        
+        if monitoring_status.get("is_monitoring", False):
+            st.success("✅ 실시간 모니터링 활성화")
+            if st.button("모니터링 중지"):
+                quality_monitor.stop_monitoring()
+                st.rerun()
+        else:
+            st.warning("⚠️ 모니터링 비활성화")
+            if st.button("모니터링 시작"):
+                quality_monitor.start_monitoring()
+                st.rerun()
+        
+        # 품질 통계 요약
+        st.markdown("### 📋 품질 요약")
+        stats = quality_metrics.get_quality_statistics(days)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric(
+                "평균 품질",
+                f"{stats['avg_overall_score']:.3f}",
+                delta=f"{stats['avg_overall_score'] - 0.7:.3f}" if stats['avg_overall_score'] > 0.7 else None
+            )
+        with col2:
+            st.metric(
+                "총 평가 수",
+                f"{stats['total_evaluations']}"
+            )
+    
+    # 메인 대시보드 컨텐츠
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 개요", "📈 트렌드", "🎯 분석", "💡 개선"])
+    
+    with tab1:
+        st.markdown("### 품질 평가 개요")
+        
+        # 품질 점수 게이지
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            current_score = stats['avg_overall_score']
+            gauge_chart = quality_visualizer.create_quality_score_gauge(current_score)
+            st.plotly_chart(gauge_chart, use_container_width=True)
+        
+        with col2:
+            # 품질 분포 파이 차트
+            distribution_chart = quality_visualizer.create_quality_distribution_chart(days)
+            st.plotly_chart(distribution_chart, use_container_width=True)
+        
+        # 품질 지표 레이더 차트
+        st.markdown("### 품질 지표 상세")
+        overview_chart = quality_visualizer.create_quality_overview_chart(days)
+        st.plotly_chart(overview_chart, use_container_width=True)
+    
+    with tab2:
+        st.markdown("### 품질 트렌드 분석")
+        
+        # 트렌드 차트
+        trend_chart = quality_visualizer.create_quality_trend_chart(days)
+        st.plotly_chart(trend_chart, use_container_width=True)
+        
+        # 품질 지표별 비교
+        st.markdown("### 품질 지표별 비교")
+        comparison_chart = quality_visualizer.create_quality_metrics_comparison(days)
+        st.plotly_chart(comparison_chart, use_container_width=True)
+    
+    with tab3:
+        st.markdown("### 상세 분석")
+        
+        # 품질 인사이트
+        insights = quality_monitor.get_quality_insights()
+        
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            st.markdown("#### 📊 품질 현황")
+            if insights.get("overall_quality"):
+                overall = insights["overall_quality"]
+                st.metric("7일 평균", f"{overall['7day_avg']:.3f}")
+                st.metric("1일 평균", f"{overall['1day_avg']:.3f}")
+                st.metric("트렌드", overall['trend'])
+        
+        with col2:
+            st.markdown("#### 📈 품질 분포")
+            if insights.get("quality_distribution"):
+                dist = insights["quality_distribution"]
+                st.metric("고품질 비율", f"{dist['high_quality_ratio']:.1%}")
+                st.metric("저품질 비율", f"{dist['low_quality_ratio']:.1%}")
+        
+        # 인사이트 표시
+        st.markdown("#### 💡 주요 인사이트")
+        if insights.get("insights"):
+            for insight in insights["insights"]:
+                st.info(f"• {insight}")
+        else:
+            st.info("분석할 데이터가 충분하지 않습니다.")
+    
+    with tab4:
+        st.markdown("### 개선 제안")
+        
+        # 개선 제안 차트
+        suggestions_chart = quality_visualizer.create_improvement_suggestions_chart(days)
+        st.plotly_chart(suggestions_chart, use_container_width=True)
+        
+        # 개선 제안 상세
+        suggestions = quality_metrics.get_improvement_suggestions(days)
+        if suggestions:
+            st.markdown("#### 🎯 우선순위별 개선 제안")
+            for i, suggestion in enumerate(suggestions, 1):
+                st.markdown(f"**{i}위**: {suggestion}")
+        else:
+            st.info("개선 제안 데이터가 없습니다.")
+        
+        # 데이터 내보내기
+        st.markdown("#### 📤 데이터 내보내기")
+        if st.button("📊 차트를 HTML로 내보내기"):
+            try:
+                output_path = f"quality_dashboard_{days}days.html"
+                quality_visualizer.export_charts_to_html(output_path, days)
+                st.success(f"차트가 {output_path}에 저장되었습니다!")
+                
+                # 파일 다운로드 링크
+                with open(output_path, 'rb') as f:
+                    st.download_button(
+                        label="📥 HTML 파일 다운로드",
+                        data=f.read(),
+                        file_name=output_path,
+                        mime="text/html"
+                    )
+            except Exception as e:
+                st.error(f"내보내기 실패: {e}")
+
 def main():
     """메인 함수"""
     try:
@@ -399,14 +599,23 @@ def main():
         # 시스템 선택
         selected_system = display_system_selector(config, system_selector)
         
-        # 비교 모드 설정
-        comparison_mode = display_comparison_mode()
+        # 메인 탭 생성
+        tab1, tab2, tab3 = st.tabs(["🔍 질의응답", "📊 품질 대시보드", "⚙️ 시스템 관리"])
         
-        # 검색 인터페이스
-        display_search_interface(system_selector, selected_system, comparison_mode)
+        with tab1:
+            # 비교 모드 설정
+            comparison_mode = display_comparison_mode()
+            
+            # 검색 인터페이스
+            display_search_interface(system_selector, selected_system, comparison_mode)
         
-        # 시스템 관리
-        display_system_management(system_selector)
+        with tab2:
+            # 품질 평가 대시보드
+            display_quality_dashboard()
+        
+        with tab3:
+            # 시스템 관리
+            display_system_management(system_selector)
         
     except Exception as e:
         st.error(f"❌ 애플리케이션 오류: {e}")
