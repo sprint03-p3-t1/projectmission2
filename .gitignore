@@ -1,3 +1,14 @@
+*.pdf
+*.hwp
+*.txt
+*.csv
+*.json
+
+*.pkl
+*.npy
+
+*.zip
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
