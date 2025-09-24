@@ -11,7 +11,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 from pathlib import Path
 
-from data_processing import DocumentChunk
+from ..data_processing import DocumentChunk
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +20,18 @@ logger = logging.getLogger(__name__)
 class EmbeddingCacheManager:
     """임베딩 캐시 관리자"""
     
-    def __init__(self, cache_dir: str = "data/processed/embeddings_cache"):
+    def __init__(self, cache_dir: str = None):
+        if cache_dir is None:
+            # 통합 설정에서 FAISS 캐시 경로 사용
+            try:
+                from src.config.unified_config import FAISS_CACHE_DIR
+                cache_dir = str(FAISS_CACHE_DIR)
+            except ImportError:
+                # 폴백: 프로젝트 루트 기준으로 절대 경로 설정
+                import os
+                project_root = Path(__file__).resolve().parent.parent.parent
+                cache_dir = str(project_root / "data" / "cache" / "faiss")
+        
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         

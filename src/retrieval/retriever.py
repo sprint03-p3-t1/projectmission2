@@ -12,8 +12,8 @@ import numpy as np
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from data_processing import RFPDocument, DocumentChunk, RetrievalResult, RAGSystemInterface
-from embedding import RFPEmbedder, RFPVectorStore, EmbeddingCacheManager
+from ..data_processing import RFPDocument, DocumentChunk, RetrievalResult, RAGSystemInterface
+from ..embedding import RFPEmbedder, RFPVectorStore, EmbeddingCacheManager
 from .chunker import RFPChunker
 
 # 로깅 설정
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class RFPRetriever(RAGSystemInterface):
     """RFP 특화 검색기 - 팀원 작업 영역"""
     
-    def __init__(self, embedding_model: str = None, chunk_size: int = 1000, overlap: int = 200, enable_cache: bool = True):
+    def __init__(self, embedding_model: str = None, chunk_size: int = 1000, overlap: int = 200, enable_cache: bool = True, cache_dir: str = None):
         # 환경변수에서 임베딩 모델 가져오기
         if embedding_model is None:
             embedding_model = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
@@ -33,7 +33,7 @@ class RFPRetriever(RAGSystemInterface):
         self.embedder = RFPEmbedder(embedding_model)
         self.vector_store = None
         self.chunks: List[DocumentChunk] = []
-        self.cache_manager = EmbeddingCacheManager() if enable_cache else None
+        self.cache_manager = EmbeddingCacheManager(cache_dir) if enable_cache else None
         self._is_ready = False
     
     def initialize(self, documents: List[RFPDocument]):

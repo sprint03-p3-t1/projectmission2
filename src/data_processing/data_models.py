@@ -44,7 +44,7 @@ class RAGResponse(BaseModel):
     """RAG 시스템 응답 데이터 클래스"""
     question: str
     answer: str
-    retrieved_chunks: List[RetrievalResult]  # RetrievalResult 객체 사용
+    retrieved_chunks: List[Dict[str, Any]]  # 딕셔너리 리스트로 변경
     generation_metadata: Dict[str, Any]  # 토큰 사용량, 응답 시간 등
     
 class RAGSystemInterface:
