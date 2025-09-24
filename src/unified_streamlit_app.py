@@ -32,7 +32,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
     handlers=[
-        logging.FileHandler(log_file, mode='a'),
+        logging.FileHandler(log_file, mode='w'),  # 새로 덮어쓰기
         logging.StreamHandler()
     ],
     force=True  # 기존 핸들러 덮어쓰기

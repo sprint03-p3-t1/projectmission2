@@ -93,10 +93,12 @@ class SystemSelector:
             # 시스템 설정
             system_config = self.config.get_system_config("chromadb")
             
-            # 모델 초기화
+            # 모델 초기화 (GPU 사용)
+            logger.info(f"🔧 ChromaDB 임베딩 모델 초기화: {system_config.embedder_model} on {self.config.device}")
             embedder = HuggingFaceEmbeddings(
                 model_name=system_config.embedder_model,
-                model_kwargs={"device": self.config.device}
+                model_kwargs={"device": self.config.device},
+                encode_kwargs={"device": self.config.device}
             )
             
             reranker = CrossEncoder(
@@ -108,12 +110,15 @@ class SystemSelector:
             tokenizer = TokenizerWrapper(system_config.tokenizer_engine)
             
             # Retriever 초기화
+            persist_dir = str(system_config.persist_directory) if system_config.persist_directory else None
+            logger.info(f"🔧 ChromaDB persist_directory: {persist_dir}")
+            logger.info(f"🔧 system_config.persist_directory: {system_config.persist_directory}")
             retriever = Retriever(
                 meta_df=meta_df,
                 embedder=embedder,
                 reranker=reranker,
                 tokenizer=tokenizer,
-                persist_directory=str(system_config.persist_directory),
+                persist_directory=persist_dir,
                 rerank_max_length=system_config.rerank_max_length,
                 bm25_path=str(system_config.cache_dir / "bm25_index.pkl"),
                 debug_mode=True
@@ -122,12 +127,15 @@ class SystemSelector:
             # 문서 로딩 및 벡터 DB 구축 (중요!)
             logger.info("📚 문서 로딩 중...")
             import asyncio
+            json_dir = self.config.processed_dir / "json"
+            logger.info(f"📂 JSON 디렉토리: {json_dir}")
             docs = asyncio.run(retriever.load_or_cache_json_docs(
-                str(self.config.processed_dir), 
+                str(json_dir), 
                 cache_path=str(system_config.cache_dir / "cached_json_docs.pkl")
             ))
             
             logger.info("🔧 벡터 DB 구축 중...")
+            logger.info(f"📊 로드된 문서 수: {len(docs) if docs else 0}")
             retriever.set_weights(bm25_weight=0.5, rerank_weight=0.5)
             retriever.load_or_build_vector_db(docs)
             

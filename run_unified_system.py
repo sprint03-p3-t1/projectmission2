@@ -44,6 +44,12 @@ def main():
             "--server.headless", "true"
         ]
         
+        # 로그 파일을 새로 덮어쓰기 위해 기존 로그 파일 삭제
+        log_file = project_root / "streamlit.log"
+        if log_file.exists():
+            log_file.unlink()
+            logger.info("🗑️ 기존 로그 파일 삭제됨")
+        
         logger.info(f"📱 Streamlit 앱 실행: {app_path}")
         logger.info("🌐 접속 URL: http://localhost:8501")
         
