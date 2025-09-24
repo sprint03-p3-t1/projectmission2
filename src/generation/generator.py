@@ -17,7 +17,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data_processing import RetrievalResult, RAGResponse, RAGSystemInterface
-from ops import get_quality_metrics, get_quality_monitor
+from ops import get_quality_metrics, get_quality_monitor, get_conversation_tracker
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -40,7 +40,10 @@ class RFPGenerator(RAGSystemInterface):
         # MLOps 구성 요소 초기화
         self.quality_metrics = get_quality_metrics()
         self.quality_monitor = get_quality_monitor()
+        self.conversation_tracker = get_conversation_tracker()
         self.enable_quality_evaluation = True
+        self.enable_conversation_logging = True
+        self.current_session_id = None
     
     def initialize(self):
         """제네레이터 초기화"""
@@ -92,23 +95,37 @@ class RFPGenerator(RAGSystemInterface):
                     max_tokens=self.max_tokens
                 )
                 answer = response.choices[0].message.content
+                
+                # 생성 메타데이터
+                generation_time = time.time() - start_time
+                generation_metadata = {
+                    "model": self.model,
+                    "temperature": self.temperature,
+                    "max_tokens": self.max_tokens,
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                    "generation_time": generation_time,
+                    "timestamp": datetime.now().isoformat()
+                }
             except Exception as pydantic_error:
                 # Pydantic 에러 발생 시 간단한 응답 생성
                 logger.warning(f"Pydantic error occurred, using fallback: {pydantic_error}")
                 answer = f"검색된 문서를 바탕으로 답변드리겠습니다.\n\n{context[:1000]}..."
-            
-            # 생성 메타데이터
-            generation_time = time.time() - start_time
-            generation_metadata = {
-                "model": self.model,
-                "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens,
-                "generation_time": generation_time,
-                "timestamp": datetime.now().isoformat()
-            }
+                
+                # 생성 메타데이터 (에러 시)
+                generation_time = time.time() - start_time
+                generation_metadata = {
+                    "model": self.model,
+                    "temperature": self.temperature,
+                    "max_tokens": self.max_tokens,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                    "generation_time": generation_time,
+                    "timestamp": datetime.now().isoformat(),
+                    "error": str(pydantic_error)
+                }
             
             # 대화 히스토리 업데이트
             if use_conversation_history:
@@ -162,6 +179,53 @@ class RFPGenerator(RAGSystemInterface):
                     logger.error(f"Quality evaluation failed: {e}")
                     quality_evaluation = {"error": str(e)}
             
+            # 대화 로깅 (옵션)
+            if self.enable_conversation_logging:
+                try:
+                    # 검색 단계별 로그 생성
+                    search_steps = []
+                    if retrieved_results:
+                        # 임베딩 단계
+                        search_steps.append({
+                            'type': 'embedding',
+                            'input': {'query': question},
+                            'output': {'embedding_dim': len(retrieved_results[0].embedding) if retrieved_results[0].embedding else 0},
+                            'execution_time_ms': 0,  # TODO: 실제 임베딩 시간 측정
+                            'metadata': {}
+                        })
+                        
+                        # 벡터 검색 단계
+                        search_steps.append({
+                            'type': 'vector_search',
+                            'input': {'query': question, 'top_k': len(retrieved_results)},
+                            'output': {'retrieved_count': len(retrieved_results)},
+                            'execution_time_ms': 0,  # TODO: 실제 검색 시간 측정
+                            'metadata': {'search_method': 'vector'}
+                        })
+                    
+                    # 대화 로그 저장
+                    log_id = self.conversation_tracker.log_conversation(
+                        session_id=self.current_session_id or "default_session",
+                        question=question,
+                        answer=answer,
+                        system_type="faiss",  # TODO: 실제 시스템 타입 전달
+                        model_name=self.model,
+                        temperature=self.temperature,
+                        max_tokens=self.max_tokens,
+                        search_method="vector",
+                        retrieved_chunks=chunks_dict,
+                        generation_metadata=generation_metadata,
+                        quality_evaluation=quality_evaluation,
+                        conversation_history=self.conversation_history,
+                        search_steps=search_steps
+                    )
+                    
+                    generation_metadata["conversation_log_id"] = log_id
+                    logger.info(f"Conversation logged with ID: {log_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Conversation logging failed: {e}")
+        
             return RAGResponse(
                 question=question,
                 answer=answer,
@@ -474,6 +538,58 @@ class RFPGenerator(RAGSystemInterface):
     def get_monitoring_status(self) -> Dict[str, Any]:
         """모니터링 상태 조회"""
         return self.quality_monitor.get_monitoring_status()
+    
+    # 대화 세션 관리 메서드들
+    def start_conversation_session(self, user_id: str = None, session_metadata: Dict[str, Any] = None) -> str:
+        """새 대화 세션 시작"""
+        self.current_session_id = self.conversation_tracker.start_session(user_id, session_metadata)
+        logger.info(f"Started conversation session: {self.current_session_id}")
+        return self.current_session_id
+    
+    def end_conversation_session(self, end_metadata: Dict[str, Any] = None):
+        """현재 대화 세션 종료"""
+        if self.current_session_id:
+            self.conversation_tracker.end_session(self.current_session_id, end_metadata)
+            logger.info(f"Ended conversation session: {self.current_session_id}")
+            self.current_session_id = None
+    
+    def enable_conversation_logging(self, enable: bool = True):
+        """대화 로깅 활성화/비활성화"""
+        self.enable_conversation_logging = enable
+        logger.info(f"Conversation logging {'enabled' if enable else 'disabled'}")
+    
+    def get_conversation_analytics(self, days: int = 7) -> Dict[str, Any]:
+        """대화 분석 통계 조회"""
+        return self.conversation_tracker.get_conversation_analytics(days)
+    
+    def search_conversations(
+        self,
+        query: str = None,
+        system_type: str = None,
+        min_quality_score: float = None,
+        date_from: str = None,
+        date_to: str = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """대화 로그 검색"""
+        return self.conversation_tracker.search_conversations(
+            query, system_type, min_quality_score, date_from, date_to, limit
+        )
+    
+    def get_conversation_details(self, log_id: str) -> Dict[str, Any]:
+        """특정 대화의 상세 정보 조회"""
+        # 대화 로그 조회
+        conversations = self.conversation_tracker.search_conversations(limit=1000)
+        conversation = next((c for c in conversations if c['log_id'] == log_id), None)
+        
+        if not conversation:
+            return None
+        
+        # 검색 단계별 상세 정보 조회
+        search_steps = self.conversation_tracker.get_search_step_details(log_id)
+        conversation['search_steps'] = search_steps
+        
+        return conversation
 
 # 제네레이션 모듈 단독 테스트 함수
 def test_generator_standalone():
