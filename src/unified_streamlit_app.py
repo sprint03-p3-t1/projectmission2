@@ -12,6 +12,7 @@ import asyncio
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import numpy as np
+import json
 
 # 한글 폰트 설정
 plt.rcParams['font.family'] = 'DejaVu Sans'
@@ -74,7 +75,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from src.config.unified_config import UnifiedConfig
 from src.systems.system_selector import SystemSelector
 from src.generation.generator import RFPGenerator
-from src.ops import get_quality_visualizer, get_quality_metrics, get_quality_monitor, get_conversation_tracker, AutoEvaluator
+from src.ops import get_quality_visualizer, get_quality_metrics, get_quality_monitor, get_conversation_tracker, AutoEvaluator, PromptOptimizer, OptimizationResult, OptimizationConfig
 
 # 로깅 설정
 import os
@@ -1281,7 +1282,7 @@ def main():
         selected_system = display_system_selector(config, system_selector)
         
         # 메인 탭 생성
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔍 질의응답", "📊 품질 대시보드", "📈 대화 로그 분석", "🤖 자동 평가", "⚙️ 시스템 관리"])
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🔍 질의응답", "📊 품질 대시보드", "📈 대화 로그 분석", "🤖 자동 평가", "🔧 프롬프트 최적화", "⚙️ 시스템 관리"])
         
         with tab1:
             # 비교 모드 설정
@@ -1303,12 +1304,481 @@ def main():
             display_auto_evaluation_dashboard()
             
         with tab5:
+            # 프롬프트 최적화
+            display_prompt_optimization_dashboard()
+            
+        with tab6:
             # 시스템 관리
             display_system_management(system_selector)
         
     except Exception as e:
         st.error(f"❌ 애플리케이션 오류: {e}")
         logger.error(f"Application error: {e}")
+
+def display_prompt_optimization_dashboard():
+    """프롬프트 최적화 대시보드 표시"""
+    st.markdown("## 🔧 프롬프트 최적화 시스템")
+    st.markdown("LLM 기반 자동 프롬프트 개선 파이프라인 - 실제 대화 로그 데이터를 활용한 스마트 최적화")
+    
+    # 프롬프트 최적화 실행
+    with st.container():
+        st.markdown("### ⚙️ 프롬프트 최적화 실행")
+        
+        # 데이터 소스 선택
+        st.markdown("**데이터 소스 선택:**")
+        data_source = st.radio(
+            "최적화에 사용할 데이터를 선택하세요:",
+            ["자동 데이터 사용 (대화 로그)", "수동 입력 (기존 방식)"],
+            help="자동 데이터 사용 시 실제 대화 로그에서 질문-답변 쌍을 자동으로 추출합니다"
+        )
+        
+        if data_source == "자동 데이터 사용 (대화 로그)":
+            # 자동 데이터 설정
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                st.markdown("**자동 데이터 설정:**")
+                
+                # 대화 로그 필터 옵션
+                col1_1, col1_2 = st.columns(2)
+                
+                with col1_1:
+                    # 최근 질문 수 선택
+                    num_questions = st.selectbox(
+                        "최근 질문 수",
+                        options=[10, 20, 50, 100],
+                        index=1,  # 기본값: 20
+                        help="최적화에 사용할 최근 질문 수"
+                    )
+                    
+                    # 날짜 범위 선택
+                    date_range = st.selectbox(
+                        "날짜 범위",
+                        options=["최근 1주일", "최근 1개월", "최근 3개월", "전체"],
+                        index=1,  # 기본값: 최근 1개월
+                        help="분석할 대화 로그의 날짜 범위"
+                    )
+                
+                with col1_2:
+                    # 시스템 타입 필터
+                    system_filter = st.selectbox(
+                        "시스템 타입",
+                        options=["전체", "faiss", "chromadb"],
+                        help="특정 시스템의 대화만 사용"
+                    )
+                    
+                    # 품질 점수 필터
+                    min_quality = st.slider(
+                        "최소 품질 점수",
+                        min_value=0.0,
+                        max_value=1.0,
+                        value=0.0,
+                        step=0.1,
+                        help="이 점수 이상의 대화만 사용"
+                    )
+                
+                # 데이터 미리보기
+                if st.button("📊 데이터 미리보기", key="preview_data"):
+                    try:
+                        conversation_tracker = get_conversation_tracker()
+                        
+                        # 필터 파라미터 설정
+                        filter_params = {
+                            'limit': num_questions,
+                            'system_type': system_filter if system_filter != "전체" else None,
+                            'min_quality_score': min_quality if min_quality > 0 else None
+                        }
+                        
+                        # 날짜 범위 적용
+                        if date_range == "최근 1주일":
+                            filter_params['days'] = 7
+                        elif date_range == "최근 1개월":
+                            filter_params['days'] = 30
+                        elif date_range == "최근 3개월":
+                            filter_params['days'] = 90
+                        
+                        # 대화 로그 조회
+                        conversations = conversation_tracker.search_conversations(**filter_params)
+                        
+                        if conversations:
+                            st.success(f"✅ {len(conversations)}개의 대화를 찾았습니다.")
+                            
+                            # 미리보기 표시
+                            preview_df = pd.DataFrame([
+                                {
+                                    '질문': conv['question'][:50] + "..." if len(conv['question']) > 50 else conv['question'],
+                                    '시스템': conv['system_type'],
+                                    '품질점수': f"{conv['overall_quality_score']:.3f}" if conv['overall_quality_score'] else "N/A",
+                                    '시간': conv['question_timestamp']
+                                }
+                                for conv in conversations[:10]  # 상위 10개만 미리보기
+                            ])
+                            st.dataframe(preview_df, use_container_width=True)
+                            
+                            # 통계 정보
+                            if conversations:
+                                quality_scores = [conv['overall_quality_score'] for conv in conversations if conv['overall_quality_score']]
+                                if quality_scores:
+                                    avg_quality = sum(quality_scores) / len(quality_scores)
+                                    st.info(f"📊 평균 품질 점수: {avg_quality:.3f}")
+                        else:
+                            st.warning("⚠️ 조건에 맞는 대화를 찾을 수 없습니다.")
+                            
+                    except Exception as e:
+                        st.error(f"❌ 데이터 미리보기 중 오류: {e}")
+            
+            with col2:
+                st.markdown("**최적화 설정:**")
+                target_satisfaction = st.slider("목표 만족도", 0.7, 0.95, 0.9, 0.05)
+                max_iterations = st.slider("최대 반복 수", 3, 10, 5)
+                min_improvement = st.slider("최소 개선도", 0.01, 0.1, 0.05, 0.01)
+                
+                # 프롬프트 타입 선택
+                st.markdown("**최적화할 프롬프트 타입:**")
+                prompt_type = st.selectbox(
+                    "프롬프트 타입 선택",
+                    ["question_generation", "evaluation", "system"],
+                    format_func=lambda x: {
+                        "question_generation": "질문 생성 프롬프트",
+                        "evaluation": "평가 프롬프트", 
+                        "system": "시스템 프롬프트"
+                    }[x],
+                    key="auto_prompt_type"
+                )
+                
+                # 프롬프트 버전 선택
+                st.markdown("**최적화할 프롬프트 버전:**")
+                try:
+                    from src.prompts.prompt_manager import get_prompt_manager
+                    prompt_manager = get_prompt_manager()
+                    available_versions = prompt_manager.get_available_versions()
+                    current_version = prompt_manager.get_current_version()
+                    
+                    selected_version = st.selectbox(
+                        "프롬프트 버전 선택",
+                        available_versions,
+                        index=available_versions.index(current_version) if current_version in available_versions else 0,
+                        help="최적화할 프롬프트 버전을 선택하세요",
+                        key="auto_prompt_version"
+                    )
+                    
+                    # 버전 정보 표시
+                    version_info = prompt_manager.get_version_info(selected_version)
+                    if version_info:
+                        st.info(f"**선택된 버전**: {selected_version} - {version_info.get('name', 'N/A')}")
+                        st.caption(f"설명: {version_info.get('description', 'N/A')}")
+                        
+                except Exception as e:
+                    st.error(f"프롬프트 버전 정보를 불러올 수 없습니다: {e}")
+                    selected_version = "v3"  # 기본값
+        
+        else:
+            # 기존 수동 입력 방식
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                st.markdown("**테스트 문서 청크 입력:**")
+                document_chunks_text = st.text_area(
+                    "최적화 테스트용 RFP 문서 청크를 입력하세요",
+                    height=200,
+                    placeholder="사업 개요 및 추진 배경\n\n본 사업은 디지털 전환을 통한 업무 효율성 향상을 목적으로 추진되는 사업입니다...",
+                    key="manual_chunks"
+                )
+                
+                st.markdown("**최적화할 프롬프트 타입:**")
+                prompt_type = st.selectbox(
+                    "프롬프트 타입 선택",
+                    ["question_generation", "evaluation", "system"],
+                    format_func=lambda x: {
+                        "question_generation": "질문 생성 프롬프트",
+                        "evaluation": "평가 프롬프트", 
+                        "system": "시스템 프롬프트"
+                    }[x],
+                    key="manual_prompt_type"
+                )
+                
+                # 프롬프트 버전 선택
+                st.markdown("**최적화할 프롬프트 버전:**")
+                try:
+                    from src.prompts.prompt_manager import get_prompt_manager
+                    prompt_manager = get_prompt_manager()
+                    available_versions = prompt_manager.get_available_versions()
+                    current_version = prompt_manager.get_current_version()
+                    
+                    selected_version = st.selectbox(
+                        "프롬프트 버전 선택",
+                        available_versions,
+                        index=available_versions.index(current_version) if current_version in available_versions else 0,
+                        help="최적화할 프롬프트 버전을 선택하세요",
+                        key="manual_prompt_version"
+                    )
+                    
+                    # 버전 정보 표시
+                    version_info = prompt_manager.get_version_info(selected_version)
+                    if version_info:
+                        st.info(f"**선택된 버전**: {selected_version} - {version_info.get('name', 'N/A')}")
+                        st.caption(f"설명: {version_info.get('description', 'N/A')}")
+                        
+                except Exception as e:
+                    st.error(f"프롬프트 버전 정보를 불러올 수 없습니다: {e}")
+                    selected_version = "v3"  # 기본값
+            
+            with col2:
+                st.markdown("**최적화 설정:**")
+                target_satisfaction = st.slider("목표 만족도", 0.7, 0.95, 0.9, 0.05, key="manual_target")
+                max_iterations = st.slider("최대 반복 수", 3, 10, 5, key="manual_max_iter")
+                min_improvement = st.slider("최소 개선도", 0.01, 0.1, 0.05, 0.01, key="manual_min_improve")
+        
+        # 최적화 실행 버튼
+        if st.button("🚀 프롬프트 최적화 시작", type="primary"):
+            if data_source == "자동 데이터 사용 (대화 로그)":
+                # 자동 데이터로 최적화 실행
+                try:
+                    conversation_tracker = get_conversation_tracker()
+                    
+                    # 필터 파라미터 설정
+                    filter_params = {
+                        'limit': num_questions,
+                        'system_type': system_filter if system_filter != "전체" else None,
+                        'min_quality_score': min_quality if min_quality > 0 else None
+                    }
+                    
+                    # 날짜 범위 적용
+                    if date_range == "최근 1주일":
+                        filter_params['days'] = 7
+                    elif date_range == "최근 1개월":
+                        filter_params['days'] = 30
+                    elif date_range == "최근 3개월":
+                        filter_params['days'] = 90
+                    
+                    # 대화 로그 조회
+                    conversations = conversation_tracker.search_conversations(**filter_params)
+                    
+                    if not conversations:
+                        st.error("❌ 조건에 맞는 대화를 찾을 수 없습니다.")
+                        return
+                    
+                    # 대화 로그에서 질문-답변 쌍 추출
+                    document_chunks = []
+                    for conv in conversations:
+                        # 질문과 답변을 하나의 청크로 결합
+                        chunk = f"질문: {conv['question']}\n\n답변: {conv['answer']}"
+                        document_chunks.append(chunk)
+                    
+                    st.info(f"📊 {len(document_chunks)}개의 대화를 최적화 데이터로 사용합니다.")
+                    
+                    # 최적화 설정
+                    config = OptimizationConfig(
+                        target_satisfaction=target_satisfaction,
+                        max_iterations=max_iterations,
+                        min_improvement=min_improvement
+                    )
+                    
+                    # 프롬프트 최적화 실행
+                    optimizer = PromptOptimizer()
+                    
+                    # AutoEvaluator 초기화
+                    auto_evaluator = AutoEvaluator()
+                    auto_evaluator.initialize()
+                    
+                    optimizer.initialize(
+                        client=get_openai_client(),
+                        prompt_manager=get_prompt_manager(),
+                        auto_evaluator=auto_evaluator
+                    )
+                    
+                    with st.spinner("실제 대화 로그 데이터로 프롬프트 최적화 실행 중..."):
+                        result = optimizer.optimize_prompt(
+                            prompt_type=prompt_type,
+                            document_chunks=document_chunks,
+                            config=config,
+                            base_version=selected_version
+                        )
+                    
+                    if result:
+                        st.success(f"✅ 프롬프트 최적화 완료! 만족도: {result.satisfaction_score:.3f}")
+                        
+                        # 결과 표시
+                        display_optimization_results(result)
+                    else:
+                        st.error("❌ 프롬프트 최적화 실패")
+                        
+                except Exception as e:
+                    st.error(f"❌ 프롬프트 최적화 중 오류 발생: {str(e)}")
+                    logger.error(f"Prompt optimization error: {e}")
+            
+            else:
+                # 기존 수동 입력 방식
+                if document_chunks_text.strip():
+                    # 문서 청크 분할
+                    document_chunks = [chunk.strip() for chunk in document_chunks_text.split('\n\n') if chunk.strip()]
+                    
+                    if document_chunks:
+                        try:
+                            # 최적화 설정
+                            config = OptimizationConfig(
+                                target_satisfaction=target_satisfaction,
+                                max_iterations=max_iterations,
+                                min_improvement=min_improvement
+                            )
+                            
+                            # 프롬프트 최적화 실행
+                            optimizer = PromptOptimizer()
+                            
+                            # AutoEvaluator 초기화
+                            auto_evaluator = AutoEvaluator()
+                            auto_evaluator.initialize()
+                            
+                            optimizer.initialize(
+                                client=get_openai_client(),
+                                prompt_manager=get_prompt_manager(),
+                                auto_evaluator=auto_evaluator
+                            )
+                            
+                            with st.spinner("프롬프트 최적화 실행 중..."):
+                                result = optimizer.optimize_prompt(
+                                    prompt_type=prompt_type,
+                                    document_chunks=document_chunks,
+                                    config=config,
+                                    base_version=selected_version
+                                )
+                            
+                            if result:
+                                st.success(f"✅ 프롬프트 최적화 완료! 만족도: {result.satisfaction_score:.3f}")
+                                
+                                # 결과 표시
+                                display_optimization_results(result)
+                            else:
+                                st.error("❌ 프롬프트 최적화 실패")
+                                
+                        except Exception as e:
+                            st.error(f"❌ 프롬프트 최적화 중 오류 발생: {str(e)}")
+                            logger.error(f"Prompt optimization error: {e}")
+                    else:
+                        st.warning("⚠️ 유효한 문서 청크를 입력해주세요")
+                else:
+                    st.warning("⚠️ 테스트용 문서 청크를 입력해주세요")
+    
+    # 최적화 히스토리
+    with st.container():
+        st.markdown("### 📊 최적화 히스토리")
+        
+        try:
+            optimizer = PromptOptimizer()
+            history = optimizer.get_optimization_results()
+            
+            if history:
+                # 최적화 결과 테이블
+                df_history = pd.DataFrame(history)
+                df_history['created_at'] = pd.to_datetime(df_history['created_at'])
+                df_history = df_history.sort_values('created_at', ascending=False)
+                
+                st.dataframe(
+                    df_history[['version', 'satisfaction_score', 'iteration_count', 'status', 'created_at']],
+                    use_container_width=True
+                )
+                
+                # 상세 결과 보기
+                if st.button("📈 상세 결과 보기"):
+                    display_optimization_history_details(history)
+            else:
+                st.info("아직 최적화 결과가 없습니다.")
+                
+        except Exception as e:
+            st.error(f"히스토리 조회 중 오류: {str(e)}")
+            logger.error(f"Optimization history error: {e}")
+
+def display_optimization_results(result: OptimizationResult):
+    """최적화 결과 표시"""
+    st.markdown("### 📈 최적화 결과")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("만족도 점수", f"{result.satisfaction_score:.3f}")
+    
+    with col2:
+        st.metric("반복 횟수", result.iteration_count)
+    
+    with col3:
+        status_color = "🟢" if result.status == "success" else "🟡" if result.status == "in_progress" else "🔴"
+        st.metric("상태", f"{status_color} {result.status}")
+    
+    # 프롬프트 비교
+    st.markdown("### 📝 프롬프트 비교")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**원본 프롬프트:**")
+        st.text_area("", result.original_prompt, height=300, disabled=True, label_visibility="collapsed", key="original_prompt")
+    
+    with col2:
+        st.markdown("**최적화된 프롬프트:**")
+        st.text_area("", result.optimized_prompt, height=300, disabled=True, label_visibility="collapsed", key="optimized_prompt")
+    
+    # 개선 사항
+    if result.improvement_reasons:
+        st.markdown("### 💡 개선 사항")
+        for i, reason in enumerate(result.improvement_reasons, 1):
+            st.write(f"{i}. {reason}")
+    
+    # 실패 사례
+    if result.failed_cases:
+        st.markdown("### ❌ 실패 사례")
+        for i, case in enumerate(result.failed_cases[:3], 1):  # 최대 3개만 표시
+            with st.expander(f"실패 사례 {i}"):
+                st.write(f"**질문:** {case.get('question', 'N/A')}")
+                st.write(f"**답변:** {case.get('answer', 'N/A')[:200]}...")
+                st.write(f"**점수:** {case.get('overall_score', 0):.3f}")
+
+def display_optimization_history_details(history: List[Dict[str, Any]]):
+    """최적화 히스토리 상세 표시"""
+    st.markdown("### 📊 최적화 히스토리 상세")
+    
+    for i, record in enumerate(history[:5]):  # 최근 5개만 표시
+        with st.expander(f"최적화 {i+1}: {record['version']} (만족도: {record['satisfaction_score']:.3f})"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**기본 정보:**")
+                st.write(f"- 버전: {record['version']}")
+                st.write(f"- 만족도: {record['satisfaction_score']:.3f}")
+                st.write(f"- 반복 횟수: {record['iteration_count']}")
+                st.write(f"- 상태: {record['status']}")
+                st.write(f"- 생성일: {record['created_at']}")
+            
+            with col2:
+                st.markdown("**개선 사항:**")
+                try:
+                    improvement_reasons = json.loads(record['improvement_reasons'])
+                    for reason in improvement_reasons:
+                        st.write(f"- {reason}")
+                except:
+                    st.write("개선 사항 정보 없음")
+            
+            # 프롬프트 미리보기
+            st.markdown("**최적화된 프롬프트 미리보기:**")
+            optimized_prompt = record['optimized_prompt'][:500] + "..." if len(record['optimized_prompt']) > 500 else record['optimized_prompt']
+            st.text(optimized_prompt)
+
+def get_openai_client():
+    """OpenAI 클라이언트 반환"""
+    try:
+        from openai import OpenAI
+        return OpenAI()
+    except Exception as e:
+        logger.error(f"Failed to create OpenAI client: {e}")
+        return None
+
+def get_prompt_manager():
+    """프롬프트 매니저 반환"""
+    try:
+        from src.prompts.prompt_manager import PromptManager
+        return PromptManager()
+    except Exception as e:
+        logger.error(f"Failed to create PromptManager: {e}")
+        return None
 
 if __name__ == "__main__":
     main()

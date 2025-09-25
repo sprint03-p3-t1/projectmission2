@@ -69,6 +69,107 @@ class PromptManager:
         """현재 사용 중인 버전 반환"""
         return self.current_version
     
+    def create_optimized_version(
+        self, 
+        optimized_prompt: str, 
+        prompt_type: str, 
+        base_version: str = None
+    ) -> str:
+        """최적화된 프롬프트로 새 버전 생성"""
+        if base_version is None:
+            base_version = self.current_version
+        
+        # 새 버전 번호 생성
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        new_version = f"{base_version}_optimized_{timestamp}"
+        
+        # 새 버전 디렉토리 생성
+        new_version_dir = self.versions_dir / new_version
+        new_version_dir.mkdir(exist_ok=True)
+        
+        # 프롬프트 타입별 파일명 매핑
+        prompt_files = {
+            'question_generation': 'question_generation_prompt.txt',
+            'evaluation': 'advanced_evaluation_prompt.txt',
+            'system': 'system_prompt.txt',
+            'user_template': 'user_template.txt'
+        }
+        
+        if prompt_type not in prompt_files:
+            raise ValueError(f"Unknown prompt type: {prompt_type}")
+        
+        # 최적화된 프롬프트 저장
+        prompt_file = new_version_dir / prompt_files[prompt_type]
+        with open(prompt_file, 'w', encoding='utf-8') as f:
+            f.write(optimized_prompt)
+        
+        # 다른 프롬프트 파일들 복사
+        base_version_dir = self.versions_dir / base_version
+        for file_type, file_name in prompt_files.items():
+            if file_type != prompt_type:
+                src_file = base_version_dir / file_name
+                dst_file = new_version_dir / file_name
+                if src_file.exists():
+                    shutil.copy2(src_file, dst_file)
+        
+        # 설정 파일에 새 버전 추가
+        self._add_version_to_config(new_version, base_version, prompt_type)
+        
+        logger.info(f"Created optimized version {new_version} for {prompt_type}")
+        return new_version
+    
+    def _add_version_to_config(self, new_version: str, base_version: str, prompt_type: str):
+        """설정 파일에 새 버전 추가"""
+        base_config = self.config['versions'].get(base_version, {})
+        
+        new_version_config = {
+            'name': f"{base_config.get('name', 'Unknown')} (Optimized)",
+            'description': f"Optimized version of {base_version} for {prompt_type}",
+            'created_at': datetime.now().isoformat(),
+            'optimized_from': base_version,
+            'optimized_type': prompt_type,
+            'question_generation_prompt_file': 'question_generation_prompt.txt',
+            'advanced_evaluation_prompt_file': 'advanced_evaluation_prompt.txt',
+            'system_prompt_file': 'system_prompt.txt',
+            'user_template_file': 'user_template.txt',
+            'tags': base_config.get('tags', []) + ['optimized', prompt_type]
+        }
+        
+        self.config['versions'][new_version] = new_version_config
+        self._save_config()
+    
+    def get_optimization_history(self) -> List[Dict[str, Any]]:
+        """최적화 히스토리 조회"""
+        optimization_versions = []
+        
+        for version, config in self.config['versions'].items():
+            if 'optimized_from' in config:
+                optimization_versions.append({
+                    'version': version,
+                    'name': config.get('name', ''),
+                    'description': config.get('description', ''),
+                    'optimized_from': config.get('optimized_from', ''),
+                    'optimized_type': config.get('optimized_type', ''),
+                    'created_at': config.get('created_at', ''),
+                    'tags': config.get('tags', [])
+                })
+        
+        return sorted(optimization_versions, key=lambda x: x['created_at'], reverse=True)
+    
+    def apply_optimized_version(self, version: str) -> bool:
+        """최적화된 버전을 현재 버전으로 적용"""
+        if version not in self.config['versions']:
+            logger.error(f"Version {version} not found")
+            return False
+        
+        old_version = self.current_version
+        self.current_version = version
+        self.config['current_version'] = version
+        self._save_config()
+        
+        logger.info(f"Applied optimized version: {old_version} -> {version}")
+        return True
+    
     def set_current_version(self, version: str) -> bool:
         """현재 버전 변경"""
         if version not in self.get_available_versions():
@@ -127,6 +228,28 @@ class PromptManager:
             logger.error(f"Failed to read user template: {e}")
             return self._get_default_user_template()
     
+    def get_question_generation_prompt(self, version: str = None) -> str:
+        """질문 생성 프롬프트 반환"""
+        version = version or self.current_version
+        version_info = self.get_version_info(version)
+        
+        if not version_info:
+            logger.error(f"Version {version} not found")
+            return self._get_default_question_generation_prompt()
+        
+        question_file = self.versions_dir / version_info.get('question_generation_prompt_file', f"{version}_question_generation_prompt.txt")
+        
+        if not question_file.exists():
+            logger.warning(f"Question generation prompt file not found: {question_file}, using default")
+            return self._get_default_question_generation_prompt()
+        
+        try:
+            with open(question_file, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+        except Exception as e:
+            logger.error(f"Failed to read question generation prompt: {e}")
+            return self._get_default_question_generation_prompt()
+    
     def get_evaluation_prompt(self, version: str = None) -> str:
         """평가 프롬프트 반환"""
         version = version or self.current_version
@@ -136,7 +259,7 @@ class PromptManager:
             logger.error(f"Version {version} not found")
             return self._get_default_evaluation_prompt()
         
-        evaluation_file = self.versions_dir / version_info.get('evaluation_prompt_file', f"{version}_evaluation_prompt.txt")
+        evaluation_file = self.versions_dir / version_info.get('advanced_evaluation_prompt_file', f"{version}_advanced_evaluation_prompt.txt")
         
         if not evaluation_file.exists():
             logger.warning(f"Evaluation prompt file not found: {evaluation_file}, using default")
@@ -350,6 +473,22 @@ class PromptManager:
 문서에 정보가 있으면 사업명, 발주기관, 사업금액, 기간 등 핵심 정보를 포함하여 상세하게 답변하세요.
 문서에 없는 내용에 대해서는 "문서에서 해당 정보를 찾을 수 없습니다"라고 명확히 말씀해 주세요."""
     
+    def _get_default_question_generation_prompt(self) -> str:
+        """기본 질문 생성 프롬프트"""
+        return """당신은 RFP 문서 분석 전문가입니다. 
+주어진 문서 청크를 바탕으로 다양한 유형과 난이도의 질문을 생성해주세요.
+
+문서 청크:
+{chunk}
+
+생성할 질문 유형:
+- 기본 정보 확인 질문
+- 심화 분석 질문  
+- 실무 적용 질문
+- 창의적 사고 질문
+
+각 유형별로 1-2개씩 질문을 생성해주세요."""
+
     def _get_default_evaluation_prompt(self) -> str:
         """기본 평가 프롬프트"""
         return """다음 질문과 답변을 평가해주세요. 각 항목을 0-1 점수로 평가하고, 개선 제안을 해주세요.

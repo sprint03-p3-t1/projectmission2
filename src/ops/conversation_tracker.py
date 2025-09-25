@@ -348,6 +348,7 @@ class ConversationTracker:
         min_quality_score: float = None,
         date_from: str = None,
         date_to: str = None,
+        days: int = None,
         limit: int = 100
     ) -> List[Dict[str, Any]]:
         """대화 로그 검색"""
@@ -378,6 +379,10 @@ class ConversationTracker:
             if date_to:
                 where_conditions.append("question_timestamp <= ?")
                 params.append(date_to)
+            
+            # days 파라미터 지원 (최근 N일)
+            if days is not None:
+                where_conditions.append("question_timestamp >= datetime('now', '-{} days')".format(days))
             
             where_clause = " AND ".join(where_conditions) if where_conditions else "1=1"
             

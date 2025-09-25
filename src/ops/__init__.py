@@ -8,6 +8,7 @@ from .quality_monitor import QualityMonitor, QualityAlert, get_quality_monitor
 from .quality_visualizer import QualityVisualizer, get_quality_visualizer
 from .conversation_tracker import ConversationTracker, get_conversation_tracker
 from .auto_evaluator import AutoEvaluator, GeneratedQuestion, EvaluationResult
+from .prompt_optimizer import PromptOptimizer, OptimizationResult, OptimizationConfig
 
 __all__ = [
     "QualityMetrics",
@@ -18,6 +19,9 @@ __all__ = [
     "AutoEvaluator",
     "GeneratedQuestion",
     "EvaluationResult",
+    "PromptOptimizer",
+    "OptimizationResult",
+    "OptimizationConfig",
     "get_quality_metrics",
     "get_quality_monitor",
     "get_quality_visualizer",
