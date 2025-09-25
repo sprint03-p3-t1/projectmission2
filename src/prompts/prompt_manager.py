@@ -159,6 +159,38 @@ class PromptManager:
         template = self.get_evaluation_prompt(version)
         return template.format(question=question, answer=answer, context=context)
     
+    def load_prompt_file(self, filename: str) -> str:
+        """프롬프트 파일 로드"""
+        file_path = self.versions_dir / filename
+        
+        if not file_path.exists():
+            logger.warning(f"Prompt file not found: {file_path}")
+            return ""
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"Failed to load prompt file {filename}: {e}")
+            return ""
+    
+    def load_question_generation_prompt(self, version: str = None) -> str:
+        """질문 생성 프롬프트 로드"""
+        version = version or self.current_version
+        
+        if version not in self.config.get('versions', {}):
+            logger.warning(f"Version {version} not found")
+            return ""
+        
+        version_config = self.config['versions'][version]
+        filename = version_config.get('question_generation_prompt_file')
+        
+        if not filename:
+            logger.warning(f"No question generation prompt file for version {version}")
+            return ""
+        
+        return self.load_prompt_file(filename)
+    
     def create_new_version(self, version: str, name: str, description: str, 
                           system_prompt: str, user_template: str, evaluation_prompt: str = None,
                           author: str = "user", tags: List[str] = None) -> bool:

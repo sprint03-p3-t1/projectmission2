@@ -74,7 +74,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from src.config.unified_config import UnifiedConfig
 from src.systems.system_selector import SystemSelector
 from src.generation.generator import RFPGenerator
-from src.ops import get_quality_visualizer, get_quality_metrics, get_quality_monitor, get_conversation_tracker
+from src.ops import get_quality_visualizer, get_quality_metrics, get_quality_monitor, get_conversation_tracker, AutoEvaluator
 
 # 로깅 설정
 import os
@@ -1128,6 +1128,145 @@ def display_conversation_analytics_dashboard():
         else:
             st.info("상세 정보를 보려면 검색 탭에서 '상세 보기' 버튼을 클릭하세요.")
 
+def display_auto_evaluation_dashboard():
+    """자동 평가 대시보드"""
+    st.markdown("## 🤖 자동 평가 시스템")
+    st.markdown("LLM이 자동으로 질문을 생성하고, 답변을 생성한 후, 10개 기준으로 평가합니다.")
+    
+    # 자동 평가 시스템 초기화
+    if 'auto_evaluator' not in st.session_state:
+        try:
+            with st.spinner("자동 평가 시스템을 초기화하는 중..."):
+                st.session_state.auto_evaluator = AutoEvaluator()
+                st.session_state.auto_evaluator.initialize()
+            st.success("✅ 자동 평가 시스템이 초기화되었습니다.")
+        except Exception as e:
+            st.error(f"❌ 자동 평가 시스템 초기화 실패: {e}")
+            logger.error(f"Auto evaluator initialization error: {e}")
+            return
+    
+    # 자동 평가 실행 섹션
+    st.markdown("### 📝 자동 평가 실행")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        # 문서 청크 입력
+        st.markdown("**문서 청크 입력**")
+        document_chunks = st.text_area(
+            "RFP 문서 청크를 입력하세요 (각 청크는 빈 줄로 구분)",
+            height=200,
+            placeholder="청크 1: 사업 개요 및 추진 배경...\n\n청크 2: 요구사항 및 평가 기준...\n\n청크 3: 일정 및 계약 조건..."
+        )
+    
+    with col2:
+        st.markdown("**설정**")
+        num_questions = st.slider("청크당 질문 수", 1, 5, 3)
+        run_evaluation = st.button("🚀 자동 평가 실행", type="primary")
+    
+    # 자동 평가 실행
+    if run_evaluation and document_chunks.strip():
+        try:
+            # 청크 분리
+            chunks = [chunk.strip() for chunk in document_chunks.split('\n\n') if chunk.strip()]
+            
+            if not chunks:
+                st.error("유효한 문서 청크를 입력해주세요.")
+                return
+            
+            with st.spinner("자동 평가를 실행 중입니다..."):
+                # 전체 자동 평가 파이프라인 실행
+                result = st.session_state.auto_evaluator.run_full_auto_evaluation(
+                    chunks, num_questions
+                )
+                
+                st.success(f"✅ 자동 평가 완료! {result['questions_generated']}개 질문 생성, {result['evaluations_completed']}개 평가 완료")
+                
+                # 결과 저장
+                st.session_state.auto_evaluation_result = result
+                
+        except Exception as e:
+            st.error(f"❌ 자동 평가 실행 중 오류: {e}")
+            logger.error(f"Auto evaluation error: {e}")
+    
+    # 평가 결과 표시
+    if 'auto_evaluation_result' in st.session_state:
+        result = st.session_state.auto_evaluation_result
+        
+        st.markdown("### 📊 평가 결과")
+        
+        # 통계 요약
+        stats = result['statistics']
+        if stats:
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("총 평가 수", stats['total_evaluations'])
+            with col2:
+                st.metric("평균 종합 점수", f"{stats['average_scores']['overall']:.3f}")
+            with col3:
+                st.metric("평균 정확성", f"{stats['average_scores']['accuracy']:.3f}")
+            with col4:
+                st.metric("평균 완성도", f"{stats['average_scores']['completeness']:.3f}")
+        
+        # 상세 결과 표시
+        st.markdown("### 📋 상세 평가 결과")
+        
+        for i, eval_result in enumerate(result['evaluation_results']):
+            with st.expander(f"평가 {i+1}: {eval_result.question[:50]}..."):
+                col1, col2 = st.columns([1, 1])
+                
+                with col1:
+                    st.markdown("**질문**")
+                    st.write(eval_result.question)
+                    
+                    st.markdown("**답변**")
+                    st.write(eval_result.answer[:500] + "..." if len(eval_result.answer) > 500 else eval_result.answer)
+                
+                with col2:
+                    st.markdown("**평가 점수**")
+                    scores = eval_result.scores
+                    
+                    # 점수 표시
+                    score_cols = st.columns(2)
+                    with score_cols[0]:
+                        st.metric("정확성", f"{scores.get('accuracy', 0):.3f}")
+                        st.metric("완성도", f"{scores.get('completeness', 0):.3f}")
+                        st.metric("관련성", f"{scores.get('relevance', 0):.3f}")
+                        st.metric("명확성", f"{scores.get('clarity', 0):.3f}")
+                        st.metric("구조화", f"{scores.get('structure', 0):.3f}")
+                    
+                    with score_cols[1]:
+                        st.metric("실용성", f"{scores.get('practicality', 0):.3f}")
+                        st.metric("전문성", f"{scores.get('expertise', 0):.3f}")
+                        st.metric("창의성", f"{scores.get('creativity', 0):.3f}")
+                        st.metric("실행가능성", f"{scores.get('feasibility', 0):.3f}")
+                        st.metric("리스크분석", f"{scores.get('risk_analysis', 0):.3f}")
+                    
+                    st.metric("종합 점수", f"{eval_result.overall_score:.3f}", delta=None)
+                
+                # 강점, 약점, 개선제안
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.markdown("**강점**")
+                    for strength in eval_result.strengths:
+                        st.write(f"• {strength}")
+                
+                with col2:
+                    st.markdown("**약점**")
+                    for weakness in eval_result.weaknesses:
+                        st.write(f"• {weakness}")
+                
+                with col3:
+                    st.markdown("**개선제안**")
+                    for suggestion in eval_result.improvement_suggestions:
+                        st.write(f"• {suggestion}")
+                
+                # 전반 평가
+                st.markdown("**전반 평가**")
+                st.write(eval_result.evaluation_notes)
+
 def main():
     """메인 함수"""
     try:
@@ -1142,7 +1281,7 @@ def main():
         selected_system = display_system_selector(config, system_selector)
         
         # 메인 탭 생성
-        tab1, tab2, tab3, tab4 = st.tabs(["🔍 질의응답", "📊 품질 대시보드", "📈 대화 로그 분석", "⚙️ 시스템 관리"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔍 질의응답", "📊 품질 대시보드", "📈 대화 로그 분석", "🤖 자동 평가", "⚙️ 시스템 관리"])
         
         with tab1:
             # 비교 모드 설정
@@ -1160,6 +1299,10 @@ def main():
             display_conversation_analytics_dashboard()
         
         with tab4:
+            # 자동 평가
+            display_auto_evaluation_dashboard()
+            
+        with tab5:
             # 시스템 관리
             display_system_management(system_selector)
         
