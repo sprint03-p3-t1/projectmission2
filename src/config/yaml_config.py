@@ -96,6 +96,7 @@ class YAMLConfig:
         """Generation 모듈 설정"""
         llm_config = self.get_llm_config()
         mlops_config = self.get('mlops', {})
+        prompts_config = self.get('prompts', {})
         
         return {
             'model': llm_config.get('model', 'gpt-4.1-mini'),
@@ -104,7 +105,9 @@ class YAMLConfig:
             'api_key_env': llm_config.get('api_key_env', 'OPENAI_API_KEY'),
             'enable_quality_evaluation': mlops_config.get('enable_quality_evaluation', True),
             'enable_conversation_logging': mlops_config.get('enable_conversation_logging', True),
-            'conversation_history_limit': mlops_config.get('conversation_history_limit', 6)
+            'conversation_history_limit': mlops_config.get('conversation_history_limit', 6),
+            'prompt_manager_config': prompts_config.get('manager', {}),
+            'legacy_prompts': prompts_config.get('legacy', {})
         }
     
     def reload(self):

@@ -18,6 +18,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data_processing import RetrievalResult, RAGResponse, RAGSystemInterface
 from ops import get_quality_metrics, get_quality_monitor, get_conversation_tracker
+from prompts.prompt_manager import get_prompt_manager
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -43,6 +44,10 @@ class RFPGenerator(RAGSystemInterface):
             self.enable_conversation_logging = config.get('enable_conversation_logging', True)
             self.conversation_history_limit = config.get('conversation_history_limit', 6)
             
+            # 프롬프트 매니저 설정
+            self.prompt_manager_config = config.get('prompt_manager_config', {})
+            self.legacy_prompts = config.get('legacy_prompts', {})
+            
         except ImportError:
             # 폴백: 환경변수에서 설정값 가져오기
             self.api_key = api_key or os.getenv("OPENAI_API_KEY")
@@ -52,6 +57,8 @@ class RFPGenerator(RAGSystemInterface):
             self.enable_quality_evaluation = True
             self.enable_conversation_logging = True
             self.conversation_history_limit = 6
+            self.prompt_manager_config = {}
+            self.legacy_prompts = {}
         
         self.client = None
         self.conversation_history: List[Dict[str, str]] = []
@@ -62,6 +69,16 @@ class RFPGenerator(RAGSystemInterface):
         self.quality_metrics = get_quality_metrics()
         self.quality_monitor = get_quality_monitor()
         self.conversation_tracker = get_conversation_tracker()
+        
+        # 프롬프트 매니저 초기화
+        try:
+            self.prompt_manager = get_prompt_manager()
+            # YAML 설정에서 현재 버전 설정
+            if self.prompt_manager_config.get('current_version'):
+                self.prompt_manager.set_current_version(self.prompt_manager_config['current_version'])
+        except Exception as e:
+            logger.warning(f"Failed to initialize prompt manager: {e}")
+            self.prompt_manager = None
     
     def initialize(self):
         """제네레이터 초기화"""
@@ -89,7 +106,7 @@ class RFPGenerator(RAGSystemInterface):
         # 컨텍스트 구성
         context = self._build_context(retrieved_results)
         
-        # 시스템 프롬프트
+        # 시스템 프롬프트 (프롬프트 매니저 사용)
         system_prompt = self._get_system_prompt()
         
         # 대화 히스토리 구성
@@ -100,6 +117,7 @@ class RFPGenerator(RAGSystemInterface):
             messages.extend(self.conversation_history[-self.conversation_history_limit:])
         
         # 사용자 쿼리와 컨텍스트
+        # 사용자 메시지 생성 (프롬프트 매니저 사용)
         user_message = self._create_user_message(question, context)
         messages.append({"role": "user", "content": user_message})
         
@@ -200,16 +218,21 @@ class RFPGenerator(RAGSystemInterface):
             # 대화 로깅 (옵션)
             if self.enable_conversation_logging:
                 try:
+                    logger.info(f"🔍 대화 로깅 시작 - retrieved_results 개수: {len(retrieved_results)}")
+                    
                     # 검색 단계별 로그 생성
                     search_steps = []
                     if retrieved_results:
-                        # 임베딩 단계
+                        logger.info(f"🔍 첫 번째 검색 결과 타입: {type(retrieved_results[0])}")
+                        logger.info(f"🔍 첫 번째 검색 결과 속성: {dir(retrieved_results[0])}")
+                        
+                        # 임베딩 단계 - RetrievalResult에는 embedding이 없으므로 다른 방법 사용
                         search_steps.append({
                             'type': 'embedding',
                             'input': {'query': question},
-                            'output': {'embedding_dim': len(retrieved_results[0].embedding) if retrieved_results[0].embedding else 0},
+                            'output': {'embedding_dim': 'N/A'},  # RetrievalResult에 embedding 정보 없음
                             'execution_time_ms': 0,  # TODO: 실제 임베딩 시간 측정
-                            'metadata': {}
+                            'metadata': {'note': 'embedding_dim not available in RetrievalResult'}
                         })
                         
                         # 벡터 검색 단계
@@ -222,6 +245,11 @@ class RFPGenerator(RAGSystemInterface):
                         })
                     
                     # 대화 로그 저장
+                    logger.info(f"🔍 대화 로그 저장 시작 - session_id: {self.current_session_id}")
+                    logger.info(f"🔍 question: {question[:100]}...")
+                    logger.info(f"🔍 answer: {answer[:100]}...")
+                    logger.info(f"🔍 chunks_dict length: {len(chunks_dict) if chunks_dict else 0}")
+                    
                     log_id = self.conversation_tracker.log_conversation(
                         session_id=self.current_session_id or "default_session",
                         question=question,
@@ -239,10 +267,13 @@ class RFPGenerator(RAGSystemInterface):
                     )
                     
                     generation_metadata["conversation_log_id"] = log_id
-                    logger.info(f"Conversation logged with ID: {log_id}")
+                    logger.info(f"✅ Conversation logged with ID: {log_id}")
                     
                 except Exception as e:
-                    logger.error(f"Conversation logging failed: {e}")
+                    logger.error(f"❌ Conversation logging failed: {e}")
+                    logger.error(f"❌ Error type: {type(e)}")
+                    import traceback
+                    logger.error(f"❌ Traceback: {traceback.format_exc()}")
         
             return RAGResponse(
                 question=question,
@@ -294,7 +325,14 @@ class RFPGenerator(RAGSystemInterface):
         return "\n" + "="*80 + "\n".join(context_parts)
     
     def _create_user_message(self, question: str, context: str) -> str:
-        """사용자 메시지 생성"""
+        """사용자 메시지 생성 (프롬프트 매니저 사용)"""
+        if self.prompt_manager:
+            try:
+                return self.prompt_manager.format_user_message(question, context)
+            except Exception as e:
+                logger.warning(f"Failed to use prompt manager for user message: {e}")
+        
+        # 폴백: 레거시 템플릿 사용
         return f"""
 질문: {question}
 
@@ -307,7 +345,18 @@ class RFPGenerator(RAGSystemInterface):
 """
     
     def _get_system_prompt(self) -> str:
-        """시스템 프롬프트 반환 - 커스터마이징 가능"""
+        """시스템 프롬프트 반환 (프롬프트 매니저 사용)"""
+        if self.prompt_manager:
+            try:
+                return self.prompt_manager.get_system_prompt()
+            except Exception as e:
+                logger.warning(f"Failed to use prompt manager for system prompt: {e}")
+        
+        # 폴백: 레거시 프롬프트 사용
+        if self.legacy_prompts.get('system_prompt'):
+            return self.legacy_prompts['system_prompt']
+        
+        # 최종 폴백: 하드코딩된 프롬프트
         return """
 당신은 RFP(제안요청서) 분석 전문가입니다. 
 정부기관과 기업의 입찰 공고 문서를 분석하여 컨설턴트들이 필요한 정보를 빠르게 파악할 수 있도록 도와주는 역할을 합니다.
@@ -323,9 +372,55 @@ class RFPGenerator(RAGSystemInterface):
 """
     
     def update_system_prompt(self, new_prompt: str):
-        """시스템 프롬프트 업데이트"""
+        """시스템 프롬프트 업데이트 (레거시 호환성)"""
         self._system_prompt = new_prompt
         logger.info("System prompt updated")
+    
+    def set_prompt_version(self, version: str) -> bool:
+        """프롬프트 버전 변경"""
+        if self.prompt_manager:
+            return self.prompt_manager.set_current_version(version)
+        return False
+    
+    def get_available_prompt_versions(self) -> List[str]:
+        """사용 가능한 프롬프트 버전 목록 반환"""
+        if self.prompt_manager:
+            return self.prompt_manager.get_available_versions()
+        return []
+    
+    def get_current_prompt_version(self) -> str:
+        """현재 프롬프트 버전 반환"""
+        if self.prompt_manager:
+            return self.prompt_manager.get_current_version()
+        return "legacy"
+    
+    def _get_default_evaluation_prompt(self, question: str, answer: str, context: str) -> str:
+        """기본 평가 프롬프트 (폴백용)"""
+        return f"""
+다음 질문과 답변을 평가해주세요. 각 항목을 0-1 점수로 평가하고, 개선 제안을 해주세요.
+
+질문: {question}
+
+답변: {answer}
+
+참고 문서: {context[:2000]}...
+
+평가 기준:
+1. 관련성 (Relevance): 답변이 질문에 얼마나 관련있는가? (0-1)
+2. 완성도 (Completeness): 질문에 대한 답변이 얼마나 완전한가? (0-1)
+3. 정확성 (Accuracy): 답변 내용이 얼마나 정확한가? (0-1)
+4. 명확성 (Clarity): 답변이 얼마나 이해하기 쉬운가? (0-1)
+5. 구조화 (Structure): 답변이 얼마나 체계적으로 구성되었는가? (0-1)
+
+응답 형식:
+관련성: 0.85
+완성도: 0.78
+정확성: 0.92
+명확성: 0.80
+구조화: 0.75
+종합점수: 0.82
+개선제안: [구체적인 개선 제안 3가지]
+"""
     
     def clear_conversation_history(self):
         """대화 히스토리 초기화"""
@@ -422,31 +517,15 @@ class RFPGenerator(RAGSystemInterface):
         if not self.is_ready():
             raise RuntimeError("Generator is not initialized. Call initialize() first.")
         
-        evaluation_prompt = f"""
-다음 질문과 답변을 평가해주세요. 각 항목을 0-1 점수로 평가하고, 개선 제안을 해주세요.
-
-질문: {question}
-
-답변: {answer}
-
-참고 문서: {context[:2000]}...
-
-평가 기준:
-1. 관련성 (Relevance): 답변이 질문에 얼마나 관련있는가? (0-1)
-2. 완성도 (Completeness): 질문에 대한 답변이 얼마나 완전한가? (0-1)
-3. 정확성 (Accuracy): 답변 내용이 얼마나 정확한가? (0-1)
-4. 명확성 (Clarity): 답변이 얼마나 이해하기 쉬운가? (0-1)
-5. 구조화 (Structure): 답변이 얼마나 체계적으로 구성되었는가? (0-1)
-
-응답 형식:
-관련성: 0.85
-완성도: 0.78
-정확성: 0.92
-명확성: 0.80
-구조화: 0.75
-종합점수: 0.82
-개선제안: [구체적인 개선 제안 3가지]
-"""
+        # 평가 프롬프트 생성 (프롬프트 매니저 사용)
+        if self.prompt_manager:
+            try:
+                evaluation_prompt = self.prompt_manager.format_evaluation_prompt(question, answer, context)
+            except Exception as e:
+                logger.warning(f"Failed to use prompt manager for evaluation prompt: {e}")
+                evaluation_prompt = self._get_default_evaluation_prompt(question, answer, context)
+        else:
+            evaluation_prompt = self._get_default_evaluation_prompt(question, answer, context)
         
         try:
             response = self.client.chat.completions.create(
@@ -492,16 +571,37 @@ class RFPGenerator(RAGSystemInterface):
         scores = {}
         lines = evaluation_text.split('\n')
         
+        # 매핑 딕셔너리 (한글 키워드를 영문 키로 변환)
+        key_mapping = {
+            '관련성': 'relevance',
+            '완성도': 'completeness', 
+            '정확성': 'accuracy',
+            '명확성': 'clarity',
+            '구조화': 'structure'
+        }
+        
         for line in lines:
             line = line.strip()
-            if ':' in line and any(keyword in line.lower() for keyword in ['관련성', '완성도', '정확성', '명확성', '구조화']):
+            if ':' in line:
                 try:
-                    key_value = line.split(':')
-                    if len(key_value) == 2:
-                        key = key_value[0].strip()
-                        value = float(key_value[1].strip())
-                        scores[key] = value
-                except ValueError:
+                    # 콜론으로 분리
+                    parts = line.split(':', 1)
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value_str = parts[1].strip()
+                        
+                        # 숫자 추출 (공백이나 다른 문자가 포함될 수 있음)
+                        import re
+                        number_match = re.search(r'(\d+\.?\d*)', value_str)
+                        if number_match:
+                            value = float(number_match.group(1))
+                            
+                            # 한글 키워드 확인 및 영문 키로 변환
+                            for korean_key, english_key in key_mapping.items():
+                                if korean_key in key:
+                                    scores[english_key] = value
+                                    break
+                except (ValueError, IndexError):
                     continue
         
         return scores

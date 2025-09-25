@@ -17,20 +17,45 @@ import numpy as np
 plt.rcParams['font.family'] = 'DejaVu Sans'
 plt.rcParams['axes.unicode_minus'] = False
 
-# 한글 폰트 설정 (시스템에 설치된 폰트 사용)
+# 한글 폰트 설정 (YAML 설정 파일 사용)
 try:
-    # Ubuntu/Debian 시스템에서 사용 가능한 한글 폰트들
-    korean_fonts = ['NanumGothic', 'NanumBarunGothic', 'Malgun Gothic', 'AppleGothic', 'Noto Sans CJK KR']
-    available_fonts = [f.name for f in fm.fontManager.ttflist]
+    import yaml
+    import os
     
-    for font in korean_fonts:
-        if font in available_fonts:
-            plt.rcParams['font.family'] = font
-            break
+    # YAML 설정 파일 로드
+    config_path = os.path.join(os.getcwd(), 'config', 'rag_config.yaml')
+    if os.path.exists(config_path):
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        
+        font_config = config.get('ui', {}).get('korean_font', {})
+        font_path = font_config.get('path', 'NanumGothic.ttf')
+        fallback_fonts = font_config.get('fallback_fonts', ['NanumGothic', 'NanumBarunGothic'])
+        
+        # 절대 경로로 변환
+        absolute_font_path = os.path.join(os.getcwd(), font_path)
+        
+        if os.path.exists(absolute_font_path):
+            # 폰트 파일이 있으면 직접 등록
+            fm.fontManager.addfont(absolute_font_path)
+            plt.rcParams['font.family'] = 'NanumGothic'
+            print(f"✅ 한글 폰트 설정 완료: {absolute_font_path}")
+        else:
+            # 시스템 폰트 찾기
+            available_fonts = [f.name for f in fm.fontManager.ttflist]
+            
+            for font in fallback_fonts:
+                if font in available_fonts:
+                    plt.rcParams['font.family'] = font
+                    print(f"✅ 시스템 한글 폰트 설정: {font}")
+                    break
+            else:
+                print("⚠️ 한글 폰트를 찾을 수 없습니다. 기본 폰트를 사용합니다.")
+                plt.rcParams['font.family'] = 'DejaVu Sans'
     else:
-        # 폰트가 없으면 기본 폰트 사용하고 경고
-        print("⚠️ 한글 폰트를 찾을 수 없습니다. 기본 폰트를 사용합니다.")
+        print("⚠️ 설정 파일을 찾을 수 없습니다. 기본 폰트를 사용합니다.")
         plt.rcParams['font.family'] = 'DejaVu Sans'
+        
 except Exception as e:
     print(f"⚠️ 폰트 설정 중 오류: {e}")
     plt.rcParams['font.family'] = 'DejaVu Sans'
@@ -411,6 +436,77 @@ def display_system_management(system_selector):
                     system_selector.clear_cache(system_name)
                 st.success("캐시 정리 완료!")
                 st.rerun()
+    
+    # 프롬프트 버전 관리
+    display_prompt_management()
+
+def display_prompt_management():
+    """프롬프트 버전 관리 UI"""
+    st.sidebar.markdown("---")
+    st.sidebar.header("📝 프롬프트 관리")
+    
+    try:
+        from src.prompts.prompt_manager import get_prompt_manager
+        prompt_manager = get_prompt_manager()
+        
+        # 현재 프롬프트 버전 표시
+        current_version = prompt_manager.get_current_version()
+        st.sidebar.info(f"**현재 버전**: {current_version}")
+        
+        # 사용 가능한 버전 목록
+        available_versions = prompt_manager.get_available_versions()
+        
+        if available_versions:
+            # 버전 선택 드롭다운
+            selected_version = st.sidebar.selectbox(
+                "프롬프트 버전 선택",
+                available_versions,
+                index=available_versions.index(current_version) if current_version in available_versions else 0,
+                help="다른 프롬프트 버전으로 전환할 수 있습니다"
+            )
+            
+            # 버전 변경 버튼
+            if selected_version != current_version:
+                if st.sidebar.button("🔄 버전 변경", key="change_prompt_version"):
+                    if prompt_manager.set_current_version(selected_version):
+                        st.sidebar.success(f"✅ {selected_version} 버전으로 변경됨")
+                        st.rerun()
+                    else:
+                        st.sidebar.error("❌ 버전 변경 실패")
+            
+            # 버전 정보 표시
+            version_info = prompt_manager.get_version_info(selected_version)
+            if version_info:
+                with st.sidebar.expander(f"📋 {selected_version} 정보"):
+                    st.markdown(f"**이름**: {version_info.get('name', 'N/A')}")
+                    st.markdown(f"**설명**: {version_info.get('description', 'N/A')}")
+                    st.markdown(f"**생성일**: {version_info.get('created_date', 'N/A')}")
+                    st.markdown(f"**작성자**: {version_info.get('author', 'N/A')}")
+                    
+                    tags = version_info.get('tags', [])
+                    if tags:
+                        st.markdown(f"**태그**: {', '.join(tags)}")
+        
+        # 프롬프트 미리보기
+        if st.sidebar.button("👁️ 프롬프트 미리보기", key="preview_prompt"):
+            st.sidebar.markdown("---")
+            st.sidebar.subheader("📄 시스템 프롬프트")
+            system_prompt = prompt_manager.get_system_prompt()
+            st.sidebar.text_area("", system_prompt, height=200, disabled=True, key="system_prompt_preview")
+            
+            st.sidebar.subheader("📝 사용자 템플릿")
+            user_template = prompt_manager.get_user_template()
+            st.sidebar.text_area("", user_template, height=150, disabled=True, key="user_template_preview")
+            
+            st.sidebar.subheader("📊 평가 프롬프트")
+            evaluation_prompt = prompt_manager.get_evaluation_prompt()
+            st.sidebar.text_area("", evaluation_prompt, height=200, disabled=True, key="evaluation_prompt_preview")
+    
+    except ImportError as e:
+        st.sidebar.warning("⚠️ 프롬프트 매니저를 사용할 수 없습니다")
+        st.sidebar.error(f"오류: {e}")
+    except Exception as e:
+        st.sidebar.error(f"❌ 프롬프트 관리 오류: {e}")
 
 def display_quality_evaluation_result(quality_eval: Dict[str, Any]):
     """품질 평가 결과 표시"""
@@ -646,6 +742,41 @@ def display_conversation_analytics_dashboard():
             step=0.1,
             help="이 점수 이상의 대화만 표시"
         )
+        
+        # 프롬프트 버전 정보
+        st.markdown("### 📝 프롬프트 버전")
+        try:
+            from src.prompts.prompt_manager import get_prompt_manager
+            prompt_manager = get_prompt_manager()
+            
+            current_version = prompt_manager.get_current_version()
+            version_info = prompt_manager.get_version_info(current_version)
+            
+            if version_info:
+                st.info(f"**현재 버전**: {current_version}")
+                st.markdown(f"**이름**: {version_info.get('name', 'N/A')}")
+                st.markdown(f"**설명**: {version_info.get('description', 'N/A')}")
+                
+                # 버전 변경 옵션
+                available_versions = prompt_manager.get_available_versions()
+                if len(available_versions) > 1:
+                    selected_version = st.selectbox(
+                        "프롬프트 버전 변경",
+                        available_versions,
+                        index=available_versions.index(current_version) if current_version in available_versions else 0,
+                        help="다른 프롬프트 버전으로 전환"
+                    )
+                    
+                    if selected_version != current_version:
+                        if st.button("🔄 버전 변경", key="change_prompt_version_analytics"):
+                            if prompt_manager.set_current_version(selected_version):
+                                st.success(f"✅ {selected_version} 버전으로 변경됨")
+                                st.rerun()
+                            else:
+                                st.error("❌ 버전 변경 실패")
+        except Exception as e:
+            st.warning("⚠️ 프롬프트 매니저를 사용할 수 없습니다")
+            st.error(f"오류: {e}")
     
     # 메인 대시보드 컨텐츠
     tab1, tab2, tab3, tab4 = st.tabs(["📊 개요", "🔍 검색", "📈 분석", "📋 상세"])
@@ -725,6 +856,37 @@ def display_conversation_analytics_dashboard():
             st.dataframe(hourly_df, use_container_width=True)
         else:
             st.info("시간대별 데이터가 없습니다.")
+        
+        # 프롬프트 버전별 통계 (새로 추가)
+        st.markdown("### 📝 프롬프트 버전별 성능")
+        try:
+            from src.prompts.prompt_manager import get_prompt_manager
+            prompt_manager = get_prompt_manager()
+            available_versions = prompt_manager.get_available_versions()
+            
+            if available_versions:
+                version_stats = []
+                for version in available_versions:
+                    version_info = prompt_manager.get_version_info(version)
+                    if version_info:
+                        # 실제로는 데이터베이스에서 프롬프트 버전별 통계를 조회해야 하지만,
+                        # 현재는 버전 정보만 표시
+                        version_stats.append({
+                            '버전': version,
+                            '이름': version_info.get('name', 'N/A'),
+                            '생성일': version_info.get('created_date', 'N/A'),
+                            '태그': ', '.join(version_info.get('tags', []))
+                        })
+                
+                if version_stats:
+                    version_df = pd.DataFrame(version_stats)
+                    st.dataframe(version_df, use_container_width=True)
+                else:
+                    st.info("프롬프트 버전 정보가 없습니다.")
+            else:
+                st.info("사용 가능한 프롬프트 버전이 없습니다.")
+        except Exception as e:
+            st.warning(f"프롬프트 버전 통계를 불러올 수 없습니다: {e}")
     
     with tab2:
         st.markdown("### 대화 로그 검색")
@@ -933,10 +1095,10 @@ def display_conversation_analytics_dashboard():
                     
                     # 질문과 답변
                     st.markdown("**질문**")
-                    st.text_area("", conversation_details['question'], height=100, disabled=True)
+                    st.text_area("질문 내용", conversation_details['question'], height=100, disabled=True, label_visibility="collapsed")
                     
                     st.markdown("**답변**")
-                    st.text_area("", conversation_details['answer'], height=200, disabled=True)
+                    st.text_area("답변 내용", conversation_details['answer'], height=200, disabled=True, label_visibility="collapsed")
                     
                     # 검색된 청크 정보
                     if conversation_details['retrieved_chunks']:

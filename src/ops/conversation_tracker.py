@@ -422,6 +422,73 @@ class ConversationTracker:
                 steps.append(step_dict)
             
             return steps
+    
+    def get_recent_conversations(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """최근 대화 목록 조회"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT 
+                    log_id,
+                    question,
+                    answer,
+                    system_type,
+                    model_name,
+                    overall_quality_score,
+                    question_timestamp,
+                    generation_time_ms
+                FROM conversation_logs 
+                ORDER BY question_timestamp DESC 
+                LIMIT ?
+            """, (limit,))
+            
+            conversations = []
+            for row in cursor.fetchall():
+                conv_dict = dict(row)
+                conversations.append(conv_dict)
+            
+            return conversations
+    
+    def get_conversation_details(self, log_id: str) -> Optional[Dict[str, Any]]:
+        """특정 대화의 상세 정보 조회"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # 기본 대화 정보 조회
+            cursor.execute("""
+                SELECT * FROM conversation_logs WHERE log_id = ?
+            """, (log_id,))
+            
+            row = cursor.fetchone()
+            if not row:
+                return None
+            
+            conversation_details = dict(row)
+            
+            # 검색된 청크 정보 조회
+            cursor.execute("""
+                SELECT * FROM search_step_logs 
+                WHERE log_id = ? AND step_type = 'vector_search'
+                ORDER BY step_order
+            """, (log_id,))
+            
+            retrieved_chunks = []
+            for step_row in cursor.fetchall():
+                step_data = dict(step_row)
+                output_data = json.loads(step_data.get('output_data', '{}'))
+                if 'retrieved_chunks' in output_data:
+                    retrieved_chunks.extend(output_data['retrieved_chunks'])
+            
+            conversation_details['retrieved_chunks'] = retrieved_chunks
+            
+            # 검색 단계별 상세 정보 조회
+            search_steps = self.get_search_step_details(log_id)
+            conversation_details['search_steps'] = search_steps
+            
+            return conversation_details
 
 
 def get_conversation_tracker() -> ConversationTracker:
