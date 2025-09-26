@@ -13,8 +13,21 @@ class TokenizerWrapper:
         else:
             raise ValueError(f"지원되지 않는 분석기: {engine}")
 
-    def tokenize(self, text: str) -> List[str]:
+    def tokenize_korean(self, text: str, use_bigrams: bool = True) -> List[str]:
+        # ✅ 명사만 추출
         if self.mode == "kiwi":
-            return [token.form for token in self.tokenizer.tokenize(text)]
+            tokens = [token.form for token in self.tokenizer.tokenize(text) if token.tag.startswith("NN")]
         elif self.mode == "okt":
-            return self.tokenizer.morphs(text)
+            tokens = self.tokenizer.nouns(text)
+
+        # ✅ 불용어 제거
+        stopwords = {"에서", "는", "은", "이", "가", "하", "어야", "에", "을", "를", "도", "로", "과", "와", "의", "?", "다"}
+        tokens = [t for t in tokens if t not in stopwords]
+
+        # ✅ 바이그램 추가
+        if use_bigrams:
+            bigrams = [tokens[i] + tokens[i+1] for i in range(len(tokens) - 1)]
+            tokens += bigrams
+
+        return tokens
+

@@ -24,6 +24,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from src.config.unified_config import UnifiedConfig
 from src.systems.system_selector import SystemSelector
 from src.generation.generator import RFPGenerator
+from src.generation.sample_langchain_response import get_qa_chain, merge_docs_to_text
 
 # 로깅 설정
 import os
@@ -257,38 +258,46 @@ def display_single_result(system, query, system_name):
                 
             elif system_name == "chromadb":
                 # 팀원 ChromaDB 시스템
-                results = system.smart_search(query, top_k=3, candidate_size=10)
+                matched_records, semantic_docs = system.smart_search(query, top_k=3, candidate_size=10)
                 end_time = time.time()
-                
+
+                 # LLM 응답 생성
+                qa_chain = get_qa_chain()
+                merged_text = merge_docs_to_text(semantic_docs)
+                response = qa_chain.invoke({
+                    "context": merged_text,
+                    "question": query
+                })
+                final_answer = response.get("text", "").strip()
+
                 st.success(f"✅ 검색 완료 ({end_time - start_time:.2f}초)")
+                st.markdown(final_answer)
                 
-                # 결과 표시
-                st.markdown("### 📄 검색 결과")
+                # 📈 문서 점수 및 내용 출력
+                st.markdown("### 📈 반환 문서 분석")
                 
-                if results and isinstance(results[0], dict):
-                    # 메타데이터 기반 결과
-                    df = pd.DataFrame(results)
+                # 메타데이터 결과
+                if matched_records:
+                    st.markdown("#### 📊 메타데이터 필터링 결과 (최대 10개)")
+                    df = pd.DataFrame(matched_records[:10])
                     st.dataframe(df, use_container_width=True)
-                else:
-                    # 문서 기반 결과
-                    for i, doc in enumerate(results):
-                        with st.expander(f"📄 문서 {i+1}"):
-                            st.markdown(f"**출처**: {doc.metadata.get('chunk_id', 'Unknown')}")
+
+                # 의미 기반 결과
+                if semantic_docs:
+                    st.markdown("#### 🔍 의미 기반 검색 결과")
+                    for i, doc in enumerate(semantic_docs, 1):
+                        with st.expander(f"📄 문서 {i} | 출처: {doc.metadata.get('chunk_id', 'Unknown')}"):
                             st.markdown(f"**내용**: {doc.page_content[:500]}...")
-                            
-                            # 점수 정보 표시
+                            # 점수 표시
                             if hasattr(system, 'last_scores'):
                                 key = system.get_doc_key(doc)
                                 scores = system.last_scores.get(key, {})
                                 if scores:
                                     col1, col2, col3 = st.columns(3)
-                                    with col1:
-                                        st.metric("BM25 점수", f"{scores.get('bm25', 0):.3f}")
-                                    with col2:
-                                        st.metric("재순위화 점수", f"{scores.get('rerank', 0):.3f}")
-                                    with col3:
-                                        st.metric("통합 점수", f"{scores.get('combined', 0):.3f}")
-                
+                                    with col1: st.metric("BM25", f"{scores.get('bm25', 0):.3f}")
+                                    with col2: st.metric("Rerank", f"{scores.get('rerank', 0):.3f}")
+                                    with col3: st.metric("Combined", f"{scores.get('combined', 0):.3f}")
+ 
         except Exception as e:
             st.error(f"❌ 검색 중 오류 발생: {e}")
             logger.error(f"Search error: {e}")
@@ -315,8 +324,11 @@ def display_comparison_results(system_selector, query):
                     response = system.ask(query)
                     results[system_name] = response
                 elif system_name == "chromadb":
-                    search_results = system.smart_search(query, top_k=3, candidate_size=10)
-                    results[system_name] = search_results
+                    matched_records, semantic_docs = system.smart_search(query, top_k=3, candidate_size=10)
+                    results[system_name] = {
+                        "matched_records": matched_records,
+                        "semantic_docs": semantic_docs
+                    }
                 
                 end_time = time.time()
                 times[system_name] = end_time - start_time
@@ -341,19 +353,44 @@ def display_comparison_results(system_selector, query):
         with col2:
             st.markdown("#### 🟢 ChromaDB 하이브리드 시스템")
             if results.get("chromadb"):
+                # LLM 응답 생성
+                qa_chain = get_qa_chain()
+                merged_text = merge_docs_to_text(semantic_docs)
+                response = qa_chain.invoke({
+                    "context": merged_text,
+                    "question": query
+                })
+                final_answer = response.get("text", "").strip()
+
                 st.markdown(f"⏱️ 검색 시간: {times.get('chromadb', 0):.2f}초")
+                st.markdown(final_answer)
                 
-                if isinstance(results["chromadb"], list) and results["chromadb"]:
-                    if isinstance(results["chromadb"][0], dict):
-                        # 메타데이터 결과
-                        df = pd.DataFrame(results["chromadb"])
-                        st.dataframe(df, use_container_width=True)
-                    else:
-                        # 문서 결과
-                        for i, doc in enumerate(results["chromadb"]):
-                            with st.expander(f"📄 문서 {i+1}"):
-                                st.markdown(f"**출처**: {doc.metadata.get('chunk_id', 'Unknown')}")
-                                st.markdown(f"**내용**: {doc.page_content[:300]}...")
+                # 📈 문서 점수 및 내용 출력
+                st.markdown("### 📈 반환 문서 분석")
+                
+                # 메타데이터 필터링 결과
+                if matched_records:
+                    st.markdown("#### 📊 메타데이터 필터링 결과 (최대 10개)")
+                    df = pd.DataFrame(matched_records[:10])
+                    st.dataframe(df, use_container_width=True)
+                
+                # 의미 기반 결과
+                if semantic_docs:
+                    st.markdown("#### 🔍 의미 기반 검색 결과")
+                    for i, doc in enumerate(semantic_docs, 1):
+                        with st.expander(f"📄 문서 {i} | 출처: {doc.metadata.get('chunk_id', 'Unknown')}"):
+                            st.markdown(f"**내용**: {doc.page_content[:500]}...")
+                            # 점수 표시
+                            if hasattr(system, 'last_scores'):
+                                key = system.get_doc_key(doc)
+                                scores = system.last_scores.get(key, {})
+                                if scores:
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1: st.metric("BM25", f"{scores.get('bm25', 0):.3f}")
+                                    with col2: st.metric("Rerank", f"{scores.get('rerank', 0):.3f}")
+                                    with col3: st.metric("Combined", f"{scores.get('combined', 0):.3f}")
+                                        
+                
             else:
                 st.error("검색 결과 없음")
 

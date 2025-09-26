@@ -1,35 +1,45 @@
 import os
+import re
 import json
+import pickle
 import logging
 from typing import List, Dict, Set, Tuple
 
-import torch
 from tqdm import tqdm
 from tqdm.asyncio import tqdm_asyncio
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain.schema import Document
-from sentence_transformers import CrossEncoder
 from rank_bm25 import BM25Okapi 
 from more_itertools import chunked
 
 import aiofiles
-import asyncio
-import pickle
 
 # 로컬 임포트
 from ..utils.exceptions import RetrieverError, ChunkLoadingError
 from ..utils.filtering import extract_filters, check_filter_match, normalize_keywords
+from ..utils.scaling import minmax_scale
 from .tokenizer_wrapper import TokenizerWrapper
+from .rerank import RerankModel
 
+# 로컬 임포트
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+class RetrieverError(Exception):
+    """Retriever에서 발생하는 예외를 위한 기본 클래스"""
+    pass
+
+class ChunkLoadingError(RetrieverError):
+    """JSON 청크 로딩 실패 시 발생하는 예외"""
+    pass
+
 
 class Retriever:
     def __init__(self,
                  meta_df=None,
                  embedder=None,
-                 reranker=None,
+                 reranker: RerankModel =None,
                  tokenizer=None,
                  persist_directory=None,
                  rerank_max_length=512,
@@ -89,17 +99,6 @@ class Retriever:
             self.bm25_ready = False
             logging.warning(f"❌ BM25 인덱스 파일 없음: {path}")
 
-    def tokenize_korean(self, text: str) -> List[str]:
-        tokens = self.tokenizer.tokenize(text)
-        stopwords = {"에서", "는", "은", "이", "가", "하", "어야", "에", "을", "를", "도", "로", "과", "와", "의", "?", "다"}
-        tokens = [t for t in tokens if t not in stopwords]
-    
-        # ✅ bi-gram 생성
-        bigrams = [tokens[i] + tokens[i+1] for i in range(len(tokens) - 1)]
-    
-        # 최종 토큰 = 원래 토큰 + bigram
-        return tokens + bigrams
-
     def deduplicate_documents(self, documents: List[Document]) -> List[Document]:
         seen = set()
         unique_docs = []
@@ -113,7 +112,10 @@ class Retriever:
         return unique_docs
 
     
-    async def load_or_cache_json_docs(self, folder_path: str, cache_path: str = "cached_json_docs.pkl") -> List[Document]:
+    async def load_or_cache_json_docs(self, folder_path: str, cache_path: str) -> List[Document]:
+        # 캐시 디렉토리 자동 생성
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    
         if os.path.exists(cache_path):
             with open(cache_path, "rb") as f:
                 logging.info("📦 캐시된 JSON 문서 로드 중...")
@@ -206,47 +208,81 @@ class Retriever:
 
         return all_docs
 
+
     def load_or_build_vector_db(self, documents: List[Document], force_rebuild: bool = False):
+        """Vector DB와 BM25 인덱스를 로드하거나 새로 구축합니다."""
+        
+        # 1단계: Vector DB 초기화 (로드 또는 생성)
+        self._initialize_vector_db(documents, force_rebuild)
+        
+        # 2단계: 새 문서가 있다면 DB에 추가
+        new_docs = self._update_db_with_new_docs(documents)
+        
+        # 3단계: BM25 인덱스 동기화 (새 문서 추가 여부에 따라 처리)
+        self.documents = self.get_all_documents_from_db()
+        self._synchronize_bm25_index(was_db_updated=(len(new_docs) > 0))
+        
+        # 4단계: 리랭커 임베딩 캐싱
+        self._cache_reranker_embeddings()
+        logging.info("🚀 모든 DB 및 인덱스 준비 완료.")
+    
+
+    def _initialize_vector_db(self, documents: List[Document], force_rebuild: bool):
+        """Vector DB를 생성하거나 로드합니다."""
         if force_rebuild or not self._db_exists():
             logging.info("🆕 벡터 DB 생성 중...")
-
-            # ✅ 문서 임베딩 진행 상황 표시
             wrapped_docs = list(tqdm(documents, desc="🔄 문서 임베딩 중"))
             self.db = Chroma.from_documents(wrapped_docs, self.embedder, persist_directory=self.persist_directory)
-            
             logging.info("✅ 새 DB 구축 완료.")
         else:
             logging.info("✅ 기존 벡터 DB 로드 중...")
             self.load_vector_db()
-
-        # ✅ 중복 문서 필터링 후 추가
+    
+    def _update_db_with_new_docs(self, documents: List[Document]) -> List[Document]:
+        """새로운 문서를 필터링하여 DB에 추가합니다."""
         new_docs = self._filter_new_documents(documents)
-        if new_docs:
-            logging.info(f"➕ 새 문서 {len(new_docs)}개 추가 중...")
+        if not new_docs:
+            logging.info("⏩ 새 문서 없음, DB 추가 생략")
+            return []
+    
+        logging.info(f"➕ 새 문서 {len(new_docs)}개 추가 중...")
+        batch_size = 100
+        total_batches = (len(new_docs) + batch_size - 1) // batch_size
+        
+        for batch in tqdm(chunked(new_docs, batch_size), desc="📦 배치 추가 중", total=total_batches):
+            self.db.add_documents(batch)
             
-            # ✅ 새 문서 추가 진행 상황 표시
-            wrapped_new_docs = list(tqdm(new_docs, desc="📥 새 문서 추가 중"))
-            for batch in tqdm(chunked(wrapped_new_docs, 1000), desc="📥 배치 문서 추가 중"):
-                self.db.add_documents(batch)
-
-            # ✅ 전체 문서 로딩 + BM25 인덱싱 (새 문서 있을 때만)
-            self.documents = self.get_all_documents_from_db()
-            for _ in tqdm(range(1), desc="🔧 BM25 인덱스 구축 중"):  # 단일 작업이지만 시각적 피드백용
-                self.build_bm25_index()
+        return new_docs
+    
+    def _synchronize_bm25_index(self, was_db_updated: bool):
+        """DB 상태에 따라 BM25 인덱스를 생성하거나 로드합니다."""
+        # 새 문서가 추가됐다면 BM25 인덱스는 무조건 새로 만들어야 함
+        if was_db_updated:
+            logging.info("🔧 새 문서 추가됨, BM25 인덱스 재생성...")
+            self.build_bm25_index()
             self.save_bm25_index()
             logging.info("✅ BM25 인덱싱 완료.")
-        else:
-            logging.info("⏩ 새 문서 없음, DB 추가 생략")
-            if not hasattr(self, "bm25_ready") or not self.bm25_ready:
-                self.documents = self.get_all_documents_from_db()
-                self.load_bm25_index()
-                
-                if not self.bm25_ready:
-                    logging.info("📚 BM25 인덱싱 시작...")
-                    for _ in tqdm(range(1), desc="🔧 BM25 인덱스 구축 중"):
-                        self.build_bm25_index()
-                    self.save_bm25_index()
-                    logging.info("✅ BM25 인덱싱 완료.")
+            return
+    
+        # 새 문서가 없다면, 기존 인덱스를 로드해보고 없으면 생성
+        if not hasattr(self, "bm25_ready") or not self.bm25_ready:
+            self.load_bm25_index()
+            if not self.bm25_ready:
+                logging.info("📚 기존 BM25 인덱스 없음, 새로 구축 시작...")
+                self.build_bm25_index()
+                self.save_bm25_index()
+                logging.info("✅ BM25 인덱싱 완료.")
+    
+    def _cache_reranker_embeddings(self):
+        """리랭커 모델을 위한 임베딩을 캐싱합니다."""
+        if not self.documents:
+            logging.warning("⚠️ 캐싱할 문서가 없습니다.")
+            return
+            
+        logging.info("💡 리랭커 임베딩 캐싱 중...")
+        texts = [doc.page_content[:self.rerank_max_length] for doc in self.documents]
+        self.reranker.cache_embeddings(texts, max_length=self.rerank_max_length)
+        logging.info("✅ 리랭커 캐싱 완료.")
 
     def load_vector_db(self):
         if not self.persist_directory or not os.path.exists(self.persist_directory):
@@ -300,7 +336,8 @@ class Retriever:
         if not self.documents:
             raise ValueError("BM25 인덱스를 생성할 문서가 없습니다.")
 
-        tokenized_corpus = [self.tokenize_korean(doc.page_content) for doc in self.documents]
+        tokenized_corpus = [self.tokenizer.tokenize_korean(doc.page_content) 
+                            for doc in tqdm(self.documents, desc="🧠 문서 토큰화 중")]
         self.bm25 = BM25Okapi(tokenized_corpus)
         self.bm25_ready = True
         logging.info("✅ BM25 인덱스 생성 완료")
@@ -317,7 +354,7 @@ class Retriever:
         if not self.bm25_ready:
             raise ValueError("BM25 인덱스가 준비되지 않았습니다.")
 
-        tokenized_query = self.tokenize_korean(query)
+        tokenized_query = self.tokenizer.tokenize_korean(query)
         doc_scores = self.bm25.get_scores(tokenized_query)
            
         # ✅ 필터링 적용
@@ -337,32 +374,44 @@ class Retriever:
         return top_docs
 
     def rerank_documents(self, query: str, documents: List[Document]) -> Dict[str, float]:
+        """쿼리와 문서들의 유사도를 계산하여 재순위화 점수 반환"""
         if not self.reranker:
+            logging.warning("⚠️ 재순위화 모델이 로드되지 않았습니다. 점수가 0으로 반환됩니다.")
             return {self.get_doc_key(doc): 0.0 for doc in documents}
-
-        # 1. 입력 쌍 생성
-        max_length = getattr(self, "rerank_max_length", 512)
-        pairs = [[query, doc.page_content[:max_length]] for doc in documents]
-
-        # 2. 점수 예측
-        scores = self.reranker.predict(pairs).flatten()
-
-        # 3. 고유 키 기준으로 점수 매핑 후 반환
-        return {
-            self.get_doc_key(doc): float(score)
-            for score, doc in zip(scores, documents)
-        }
-
+        
+        texts_to_rerank = [doc.page_content[:self.rerank_max_length] for doc in documents]
+        base_scores = self.reranker.rerank(query, texts_to_rerank)
+    
+        query_tokens = self.tokenizer.tokenize_korean(query)
+        bonus_weight = 1.0
+    
+        final_scores = {}
+        for doc, base_score in zip(documents, base_scores.values()):
+            bonus = 0
+            if query in doc.page_content:
+                bonus += 2.0
+            bonus += sum(1 for token in query_tokens if token in doc.page_content) * bonus_weight
+    
+            key = self.get_doc_key(doc)
+            final_scores[key] = base_score + bonus
+    
+        logging.info("🧠 재순위화 점수 계산 완료 (보너스 포함)")
+        return final_scores
+    
     def _calculate_combined_scores(self, documents: List[Document], query: str, 
                                  bm25_scores: Dict[str, float], rerank_scores: Dict[str, float]) -> List[Tuple[float, Document]]:
         """문서들에 대한 BM25 + 재순위화 점수를 계산하여 반환"""
         final_scored = []
         self.last_scores= {}
-        
+
+        # 1. 점수 정규화
+        scaled_bm25 = minmax_scale(bm25_scores)
+        scaled_rerank = minmax_scale(rerank_scores)
+
         for doc in documents:
             key = self.get_doc_key(doc)
-            bm25 = bm25_scores.get(key, 0.0)
-            rerank = rerank_scores.get(key, 0.0)
+            bm25 = scaled_bm25.get(key, 0.0)
+            rerank = scaled_rerank.get(key, 0.0)
             combined = self.bm25_weight * bm25 + self.rerank_weight * rerank
             
             self.last_scores[key] = {
@@ -370,7 +419,6 @@ class Retriever:
                 "rerank": rerank,
                 "combined": combined
             }
-    
             final_scored.append((combined, doc))
     
         return final_scored
@@ -392,6 +440,7 @@ class Retriever:
             chunk_index = doc.metadata.get("chunk_id", "❓")
             print(f"🔍 {source} | Chunk {chunk_index} | BM25: {bm25:.2f} | Rerank: {rerank:.2f} | Combined: {combined:.2f}")
 
+        
     def _merge_search_results(self, vector_results: List[Document], bm25_results: List[Tuple[float, Document]]) -> Tuple[List[Document], Dict[str, float]]:
         """벡터와 BM25 검색 결과를 병합하고 점수 딕셔너리 반환"""
         merged = {}
@@ -412,56 +461,60 @@ class Retriever:
         
         return list(merged.values()), bm25_scores
     
-    def hybrid_search(self, query: str, top_k: int = 3, candidate_size: int = 10, filter_dict: Dict = None) -> List[Document]:
+    def hybrid_search(self, query: str, top_k: int = 3, candidate_size: int = 10,
+                      filter_dict: Dict = None, candidate_filenames: List[str] = None) -> List[Document]:
         """하이브리드 검색: 벡터 + BM25 + 재순위화 + 필터링"""
         if self.db is None:
             raise ValueError("Vector DB가 초기화되지 않았습니다.")
         if not self.bm25_ready:
             raise ValueError("BM25 인덱스가 준비되지 않았습니다.")
-        
+    
         if filter_dict:
             logging.info(f"🔍 하이브리드 필터 적용: {filter_dict}")
-
-        # 1. 벡터 + BM25 하이브리드 검색. 단순 필터(=) 적용. 검색범위 좁히고 성능 향상
+    
+        # 1. 단순 필터 (=)만 추출
         simple_filter = {
             key: val["value"]
             for key, val in filter_dict.items()
             if val.get("operator") == "=" and key != "사업 요약"
-        }
-        if not simple_filter:
-            simple_filter = None
-
+        } or None
+    
+        # 2. 벡터 + BM25 검색
         vector_results = self.db.similarity_search(query, k=candidate_size, filter=simple_filter)
         bm25_results = self.bm25_search(query, k=candidate_size, filter=simple_filter)
+        
+        # 3. 파일명 기반 후보 제한 (metadata 쿼리일 때만 적용됨)
+        if candidate_filenames:
+            vector_results = [doc for doc in vector_results if doc.metadata.get("파일명") in candidate_filenames]
+            bm25_results = [(score, doc) for score, doc in bm25_results if doc.metadata.get("파일명") in candidate_filenames]
+            logging.info(f"📁 파일명 기반 후보 제한 적용됨: {len(candidate_filenames)}개")
 
+        # 4. 결과 병합
         merged_docs, bm25_scores = self._merge_search_results(vector_results, bm25_results)
-
-        # 2. 고급 조건 필터링 적용 (>, < 등 연산자 필터링)
+    
+        # 5. 고급 조건 필터링 (>, < 등)
         filtered_docs = [doc for doc in merged_docs if check_filter_match(doc.metadata, filter_dict)]
-        logging.info(f"✅ 고급 필터링 후 문서 수: {len(filtered_docs )}")
-
-        if not filtered_docs :
-            logging.warning("⚠️ 필터링 결과가 없습니다. 원본 결과에서 상위 {top_k}개 반환합니다.")
-            final_docs_to_score = merged_docs
-        else:
-            # 필터링 결과가 있으면 그 문서들에만 점수 계산
-            final_docs_to_score = filtered_docs 
-
-         # 3. 재순위화 점수 계산
+        logging.info(f"✅ 고급 필터링 후 문서 수: {len(filtered_docs)}")
+    
+        final_docs_to_score = filtered_docs if filtered_docs else merged_docs
+        if not filtered_docs:
+            logging.warning(f"⚠️ 필터링 결과 없음 → 원본 결과에서 상위 {top_k}개 반환")
+    
+        # 6. 재순위화
         rerank_scores = self.rerank_documents(query, final_docs_to_score)
-   
-        # 4. 최종 점수 계산 및 정렬
-        scored_docs = self._calculate_combined_scores(final_docs_to_score,  query, bm25_scores, rerank_scores)
+    
+        # 7. 최종 점수 계산 및 정렬
+        scored_docs = self._calculate_combined_scores(final_docs_to_score, query, bm25_scores, rerank_scores)
         final_results = sorted(scored_docs, key=lambda x: x[0], reverse=True)
-        
-        # 디버그 출력
+    
         if self.debug_mode:
-            self._debug_print_scores(final_docs_to_score , "하이브리드 검색")
-        
+            self._debug_print_scores([doc for _, doc in final_results], "하이브리드 검색")
+    
         logging.info(f"📊 하이브리드 검색 완료: {len(final_results)} → {top_k}개 반환")
         return [doc for _, doc in final_results[:top_k]]
 
-    def detect_query_type(self, query: str) -> str:
+
+    def detect_query_type(self, query: str, filters: Dict[str, Dict]) -> str:
         normalized_query = query.replace(" ", "").lower()
         
         explicit_summary_keywords = normalize_keywords([
@@ -469,51 +522,60 @@ class Retriever:
         ])
         
         metadata_keywords = normalize_keywords([
-            "사업금액", "예산", "금액", "입찰일", "입찰시작일", "참여시작일",
-            "입찰마감일", "참여마감일", "공고번호", "발주기관", "공개일자", "파일형식", "입찰공고일"
+            "사업금액",  "입찰일", "입찰시작일", "참여시작일",
+            "입찰마감일", "참여마감일", "공고번호", "공개일자", "입찰공고일"
         ])
 
         if any(k in normalized_query for k in explicit_summary_keywords):
             return "metadata"
-        if any(k in normalized_query for k in metadata_keywords):
+        if any(filters for field in metadata_keywords):
             return "metadata"
         return "semantic"
 
     
     def smart_search(self, query: str, top_k: int = 5, candidate_size: int = 10) -> List[Document]:
-        """스마트 검색: 필터 추출 + 하이브리드 검색 + 고급 필터링"""
+        """스마트 검색: 필터 추출 + 쿼리 유형 판단 + 하이브리드 검색"""
         if self.db is None or not self.bm25_ready:
             raise ValueError("❌ Vector DB 또는 BM25 인덱스가 준비되지 않았습니다.")
-
-        # 1. 쿼리에서 필터 조건 추출
-        filters  = extract_filters(query, self.meta_df, self.tokenizer)
+    
+        # 1. 필터 추출
+        filters = extract_filters(query, self.meta_df, self.tokenizer)
         logging.info(f"🧠 추출된 필터: {filters}")
-
-        # 2️. 쿼리 유형 판단
-        query_type = self.detect_query_type(query)
-
-        # 🚨 발주기관 키워드가 추출되었으면 쿼리에서 삭제
+    
+        # 2. 쿼리 유형 판단
+        query_type = self.detect_query_type(query, filters)
+    
+        # 3. 발주기관 키워드 제거
         if filters.get("발주 기관"):
             agency_name = filters["발주 기관"]["value"]
-            query = query.replace(agency_name, "").strip()
+            query = re.sub(rf"\b{re.escape(agency_name)}\b", "", query).strip()
             logging.info(f"🧹 쿼리에서 발주기관 키워드 제거됨: '{agency_name}'")
-
-
-        # 3. 메타데이터 기반 검색
+    
+        # 4. 메타데이터 기반 필터링 (metadata 쿼리일 때만)
+        matched_records = []
+        candidate_filenames = None
         if query_type == "metadata" and self.meta_df is not None:
-            logging.info("📊 메타데이터 기반 검색 실행")
-            matched_docs = self.meta_df[
+            matched_df = self.meta_df[
                 self.meta_df.apply(lambda row: check_filter_match(row, filters), axis=1)
             ]
-            return matched_docs.to_dict(orient="records")  # ✅ 전체 행을 dict로 반환
-
-        
-        # 4. 하이브리드 검색 수행 (모든 필터 정보 전달)
+            logging.info(f"📊 메타데이터 필터링 완료: {len(matched_df)}개")
+    
+            if not matched_df.empty:
+                matched_records = matched_df.head(10).to_dict(orient="records")
+                candidate_filenames = matched_df["파일명"].dropna().unique().tolist()
+                logging.info(f"📁 의미 검색 대상 제한됨 (파일명 기준): {len(candidate_filenames)}개")
+            else:
+                logging.warning("⚠️ 메타데이터 필터링 결과 없음 → 전체 문서 대상으로 검색")
+    
+        # 5. 하이브리드 검색 실행
         logging.info("🔍 의미 기반 하이브리드 검색 실행")
-        return self.hybrid_search(
-            query=query, 
-            top_k=top_k, 
+        semantic_docs = self.hybrid_search(
+            query=query,
+            top_k=top_k,
             candidate_size=candidate_size,
-            filter_dict=filters 
+            filter_dict=filters,
+            candidate_filenames=candidate_filenames
         )
+        
+        return matched_records, semantic_docs
         

@@ -14,7 +14,8 @@ sys.path.insert(0, str(project_root))
 
 from src.config.unified_config import UnifiedConfig
 from src.rfp_rag_main import RFPRAGSystem  # 기존 시스템
-from src.retrieval.hybrid_retriever import Retriever  # 팀원 시스템
+from src.retrieval.hybrid_retriever import Retriever # 리트리버 
+from src.retrieval.rerank import RerankModel # 리랭크 모델
 from src.generation.generator import RFPGenerator
 
 logger = logging.getLogger(__name__)
@@ -101,10 +102,10 @@ class SystemSelector:
                 encode_kwargs={"device": self.config.device}
             )
             
-            reranker = CrossEncoder(
-                system_config.reranker_model,
+            reranker = RerankModel(
+                model_name=system_config.reranker_model,
+                cache_dir=system_config.rerank_cache_dir,
                 device=self.config.device,
-                max_length=system_config.rerank_max_length
             )
             
             tokenizer = TokenizerWrapper(system_config.tokenizer_engine)
@@ -136,7 +137,7 @@ class SystemSelector:
             
             logger.info("🔧 벡터 DB 구축 중...")
             logger.info(f"📊 로드된 문서 수: {len(docs) if docs else 0}")
-            retriever.set_weights(bm25_weight=0.5, rerank_weight=0.5)
+            retriever.set_weights(bm25_weight=0.3, rerank_weight=0.7)
             retriever.load_or_build_vector_db(docs)
             
             logger.info("✅ ChromaDB 시스템 초기화 완료")
@@ -213,6 +214,11 @@ class SystemSelector:
                 import shutil
                 shutil.rmtree(system_config.persist_directory)
                 logger.info(f"🗑️ ChromaDB 디렉토리 정리: {system_config.persist_directory}")
+            
+            # Rerank 캐시 디렉토리도 정리   
+            if system_config.rerank_cache_dir and system_config.rerank_cache_dir.exists():
+                shutil.rmtree(system_config.rerank_cache_dir)
+                logger.info(f"🗑️ Rerank 캐시 디렉토리 정리: {system_config.rerank_cache_dir}")
         
         # 캐시 파일 정리
         for cache_file in cache_files:
