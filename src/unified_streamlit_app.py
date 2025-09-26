@@ -292,20 +292,54 @@ def display_single_result(system_selector, system, query, system_name):
         
         try:
             if system_name == "faiss":
-                # 기존 FAISS 시스템
-                response = system.ask(query)
+                # FAISS 시스템에서 SystemSelector.ask() 사용
+                response = system_selector.ask(query, system_name)
                 end_time = time.time()
                 
                 # 디버깅 로그 추가
-                logger.info(f"🔍 Streamlit 검색 결과: {response[:200]}...")
+                logger.info(f"🔍 Streamlit 검색 결과: {response.get('answer', '')[:200]}...")
                 logger.info(f"🔍 응답 타입: {type(response)}")
-                logger.info(f"🔍 응답 길이: {len(response) if response else 0}")
+                logger.info(f"🔍 응답 길이: {len(response.get('answer', '')) if response.get('answer') else 0}")
                 
                 st.success(f"✅ 검색 완료 ({end_time - start_time:.2f}초)")
                 
-                # 결과 표시
-                st.markdown("### 📄 검색 결과")
-                st.markdown(response)
+                # 질문 분류 정보 표시
+                if response.get('question_classification'):
+                    classification = response['question_classification']
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.info(f"**질문 유형**: {classification['type']}")
+                    with col2:
+                        st.info(f"**신뢰도**: {classification['confidence']:.2f}")
+                    with col3:
+                        st.info(f"**프롬프트**: {classification['prompt_type']}")
+                    
+                    # 분류 근거 표시
+                    if classification.get('reasoning'):
+                        with st.expander("📝 분류 근거"):
+                            st.write(classification['reasoning'])
+                
+                # 답변 표시
+                if response.get('answer'):
+                    st.markdown("### 🤖 AI 답변")
+                    st.markdown(response['answer'])
+                
+                # 검색 결과 표시
+                if response.get('sources'):
+                    st.markdown("### 📄 검색 결과")
+                    for i, source in enumerate(response['sources'], 1):
+                        with st.expander(f"📄 문서 {i}", expanded=True):
+                            st.markdown(f"**출처**: {source.get('source_file', 'N/A')}")
+                            st.markdown(f"**내용**: {source.get('content', 'N/A')}")
+                            
+                            # 점수 정보 표시
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("BM25 점수", f"{source.get('score', 0.0):.3f}")
+                            with col2:
+                                st.metric("재순위화 점수", f"{source.get('score', 0.0):.3f}")
+                            with col3:
+                                st.metric("통합 점수", f"{source.get('score', 0.0):.3f}")
                 
             elif system_name == "chromadb":
                 # ChromaDB 시스템 질문 처리 (SystemSelector.ask() 사용)

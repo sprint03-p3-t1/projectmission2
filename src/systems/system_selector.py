@@ -252,7 +252,23 @@ class SystemSelector:
             logger.info(f"✅ 질문 분류 완료: {classification_result.question_type.value} (신뢰도: {classification_result.confidence:.3f})")
             logger.info(f"📝 분류 근거: {classification_result.reasoning}")
             logger.info(f"🎯 제안 프롬프트 타입: {classification_result.suggested_prompt_type}")
-            
+
+            # 일상 질문인 경우 RFP 문서 검색 없이 간단히 응답
+            if classification_result.question_type.value == "일상":
+                logger.info("💬 일상 질문으로 분류됨 - RFP 문서 검색 생략")
+                return {
+                    "answer": "안녕하세요! RFP 문서 분석 도구에 오신 것을 환영합니다. 궁금한 사업 정보나 입찰 관련 질문이 있으시면 언제든지 말씀해 주세요.",
+                    "sources": [],
+                    "total_documents": 0,
+                    "total_chunks": 0,
+                    "question_classification": {
+                        "type": classification_result.question_type.value,
+                        "confidence": classification_result.confidence,
+                        "reasoning": classification_result.reasoning,
+                        "prompt_type": classification_result.suggested_prompt_type
+                    }
+                }
+
         except Exception as e:
             logger.error(f"❌ 질문 분류 실패: {e}")
             # 분류 실패 시 기본값 사용
@@ -277,15 +293,15 @@ class SystemSelector:
                     "answer": response.answer,
                     "sources": [
                         {
-                            "content": chunk.content,
-                            "source_file": chunk.metadata.get("source_file", "N/A"),
-                            "page": chunk.metadata.get("page", "N/A"),
-                            "score": chunk.score
+                            "content": chunk.get("content", "N/A"),
+                            "source_file": chunk.get("source_file", "N/A"),
+                            "page": chunk.get("page", "N/A"),
+                            "score": chunk.get("score", 0.0)
                         }
                         for chunk in response.retrieved_chunks
                     ],
-                    "total_documents": system.retriever.get_total_documents(),
-                    "total_chunks": system.retriever.get_total_chunks(),
+                    "total_documents": len(system.documents),
+                    "total_chunks": len(system.retriever.vector_store.chunks) if hasattr(system.retriever, 'vector_store') else 0,
                     "question_classification": {
                         "type": classification_result.question_type.value if classification_result else "unknown",
                         "confidence": classification_result.confidence if classification_result else 0.0,
