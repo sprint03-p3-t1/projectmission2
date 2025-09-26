@@ -262,15 +262,44 @@ class SystemSelector:
                 }
             elif system_name == "chromadb":
                 # ChromaDB 시스템 질문 처리
+                logger.info(f"🔍 ChromaDB 시스템 질문 처리 시작: {question[:50]}...")
                 results = system.smart_search(question, top_k=5)
+                logger.info(f"✅ ChromaDB 검색 완료: {len(results)}개 결과")
                 
-                # LLM을 사용하여 답변 생성
+                # LLM을 사용하여 답변 생성 (프롬프트 매니저 적용)
+                logger.info("🤖 LLM 답변 생성 시작...")
                 from src.generation.generator import RFPGenerator
-                generator = RFPGenerator(
-                    model_name=self.config.get_system_config("faiss").llm_model,
-                    api_key=self.config.openai_api_key
-                )
-                llm_response = generator.generate_response(question, results)
+                generator = RFPGenerator()  # rag_config.yaml에서 자동으로 설정 로드
+                
+                # Generator 초기화
+                logger.info("🔧 RFPGenerator 초기화 중...")
+                generator.initialize()
+                logger.info("✅ RFPGenerator 초기화 완료")
+                
+                # 프롬프트 매니저 초기화
+                logger.info("📝 프롬프트 매니저 초기화 중...")
+                from src.prompts.prompt_manager import get_prompt_manager
+                prompt_manager = get_prompt_manager()
+                generator.prompt_manager = prompt_manager
+                logger.info(f"✅ 프롬프트 매니저 초기화 완료: {prompt_manager.current_version}")
+                
+                # 검색 결과를 RetrievalResult 형태로 변환
+                from src.data_processing.data_models import RetrievalResult, DocumentChunk
+                retrieval_results = []
+                for i, doc in enumerate(results):
+                    chunk = DocumentChunk(
+                        chunk_id=f"chromadb_{i}",
+                        doc_id=doc.metadata.get("source_file", "unknown"),
+                        content=doc.page_content,
+                        chunk_type="text",
+                        metadata=doc.metadata
+                    )
+                    score = system.last_scores.get(system.get_doc_key(doc), {}).get("combined", 0.0)
+                    retrieval_results.append(RetrievalResult(chunk=chunk, score=score, rank=i+1))
+                
+                logger.info(f"🔄 {len(retrieval_results)}개 검색 결과를 RetrievalResult로 변환 완료")
+                llm_response = generator.generate_response(question, retrieval_results)
+                logger.info(f"✅ LLM 답변 생성 완료: {llm_response.answer[:100]}...")
                 
                 return {
                     "answer": llm_response.answer,

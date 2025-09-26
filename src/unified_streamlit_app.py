@@ -283,9 +283,9 @@ def display_search_interface(system_selector, selected_system, comparison_mode):
             display_comparison_results(system_selector, query)
         else:
             # 단일 모드: 선택된 시스템만 실행
-            display_single_result(system, query, selected_system)
+            display_single_result(system_selector, system, query, selected_system)
 
-def display_single_result(system, query, system_name):
+def display_single_result(system_selector, system, query, system_name):
     """단일 시스템 결과 표시"""
     with st.spinner("🔍 검색 중..."):
         start_time = time.time()
@@ -308,38 +308,38 @@ def display_single_result(system, query, system_name):
                 st.markdown(response)
                 
             elif system_name == "chromadb":
-                # 팀원 ChromaDB 시스템
-                results = system.smart_search(query, top_k=3, candidate_size=10)
+                # ChromaDB 시스템 질문 처리 (SystemSelector.ask() 사용)
+                response = system_selector.ask(query, system_name)
                 end_time = time.time()
+                
+                # 디버깅 로그 추가
+                logger.info(f"🔍 ChromaDB 검색 결과: {response.get('answer', '')[:200]}...")
+                logger.info(f"🔍 응답 타입: {type(response)}")
+                logger.info(f"🔍 응답 길이: {len(response.get('answer', '')) if response.get('answer') else 0}")
                 
                 st.success(f"✅ 검색 완료 ({end_time - start_time:.2f}초)")
                 
-                # 결과 표시
-                st.markdown("### 📄 검색 결과")
+                # 답변 표시
+                if response.get('answer'):
+                    st.markdown("### 🤖 AI 답변")
+                    st.markdown(response['answer'])
                 
-                if results and isinstance(results[0], dict):
-                    # 메타데이터 기반 결과
-                    df = pd.DataFrame(results)
-                    st.dataframe(df, use_container_width=True)
-                else:
-                    # 문서 기반 결과
-                    for i, doc in enumerate(results):
-                        with st.expander(f"📄 문서 {i+1}"):
-                            st.markdown(f"**출처**: {doc.metadata.get('chunk_id', 'Unknown')}")
-                            st.markdown(f"**내용**: {doc.page_content[:500]}...")
+                # 검색 결과 표시
+                if response.get('sources'):
+                    st.markdown("### 📄 검색 결과")
+                    for i, source in enumerate(response['sources'], 1):
+                        with st.expander(f"📄 문서 {i}", expanded=True):
+                            st.markdown(f"**출처**: {source.get('source_file', 'N/A')}")
+                            st.markdown(f"**내용**: {source.get('content', 'N/A')}")
                             
                             # 점수 정보 표시
-                            if hasattr(system, 'last_scores'):
-                                key = system.get_doc_key(doc)
-                                scores = system.last_scores.get(key, {})
-                                if scores:
-                                    col1, col2, col3 = st.columns(3)
-                                    with col1:
-                                        st.metric("BM25 점수", f"{scores.get('bm25', 0):.3f}")
-                                    with col2:
-                                        st.metric("재순위화 점수", f"{scores.get('rerank', 0):.3f}")
-                                    with col3:
-                                        st.metric("통합 점수", f"{scores.get('combined', 0):.3f}")
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("BM25 점수", f"{source.get('score', 0.0):.3f}")
+                            with col2:
+                                st.metric("재순위화 점수", f"{source.get('score', 0.0):.3f}")
+                            with col3:
+                                st.metric("통합 점수", f"{source.get('score', 0.0):.3f}")
                 
         except Exception as e:
             st.error(f"❌ 검색 중 오류 발생: {e}")
@@ -367,8 +367,9 @@ def display_comparison_results(system_selector, query):
                     response = system.ask(query)
                     results[system_name] = response
                 elif system_name == "chromadb":
-                    search_results = system.smart_search(query, top_k=3, candidate_size=10)
-                    results[system_name] = search_results
+                    # SystemSelector.ask() 사용하여 프롬프트 매니저 적용
+                    response = system_selector.ask(query, system_name)
+                    results[system_name] = response
                 
                 end_time = time.time()
                 times[system_name] = end_time - start_time
@@ -395,17 +396,23 @@ def display_comparison_results(system_selector, query):
             if results.get("chromadb"):
                 st.markdown(f"⏱️ 검색 시간: {times.get('chromadb', 0):.2f}초")
                 
-                if isinstance(results["chromadb"], list) and results["chromadb"]:
-                    if isinstance(results["chromadb"][0], dict):
-                        # 메타데이터 결과
-                        df = pd.DataFrame(results["chromadb"])
-                        st.dataframe(df, use_container_width=True)
-                    else:
-                        # 문서 결과
-                        for i, doc in enumerate(results["chromadb"]):
-                            with st.expander(f"📄 문서 {i+1}"):
-                                st.markdown(f"**출처**: {doc.metadata.get('chunk_id', 'Unknown')}")
-                                st.markdown(f"**내용**: {doc.page_content[:300]}...")
+                # ChromaDB 결과는 이제 SystemSelector.ask()의 응답 형태
+                chromadb_result = results["chromadb"]
+                if isinstance(chromadb_result, dict):
+                    # AI 답변 표시
+                    if chromadb_result.get('answer'):
+                        st.markdown("**🤖 AI 답변:**")
+                        st.markdown(chromadb_result['answer'])
+                    
+                    # 검색 결과 표시
+                    if chromadb_result.get('sources'):
+                        st.markdown("**📄 검색 결과:**")
+                        for i, source in enumerate(chromadb_result['sources'][:3], 1):
+                            with st.expander(f"📄 문서 {i}"):
+                                st.markdown(f"**출처**: {source.get('source_file', 'N/A')}")
+                                st.markdown(f"**내용**: {source.get('content', 'N/A')[:300]}...")
+                else:
+                    st.error("예상치 못한 결과 형태")
             else:
                 st.error("검색 결과 없음")
 
