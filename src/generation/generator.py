@@ -79,6 +79,9 @@ class RFPGenerator(RAGSystemInterface):
         except Exception as e:
             logger.warning(f"Failed to initialize prompt manager: {e}")
             self.prompt_manager = None
+        
+        # 질문 유형 설정 (기본값: general)
+        self.question_type = "general"
     
     def initialize(self):
         """제네레이터 초기화"""
@@ -325,9 +328,17 @@ class RFPGenerator(RAGSystemInterface):
         return "\n" + "="*80 + "\n".join(context_parts)
     
     def _create_user_message(self, question: str, context: str) -> str:
-        """사용자 메시지 생성 (프롬프트 매니저 사용)"""
+        """사용자 메시지 생성 (질문 유형별 프롬프트 사용)"""
         if self.prompt_manager:
             try:
+                # 질문 유형별 프롬프트 템플릿 사용
+                if hasattr(self, 'question_type') and self.question_type != "general":
+                    template = self.prompt_manager.get_user_template_by_type(self.question_type)
+                    if template:
+                        logger.info(f"🎯 질문 유형별 프롬프트 사용: {self.question_type}")
+                        return template.format(question=question, context=context)
+                
+                # 기본 프롬프트 매니저 사용
                 return self.prompt_manager.format_user_message(question, context)
             except Exception as e:
                 logger.warning(f"Failed to use prompt manager for user message: {e}")

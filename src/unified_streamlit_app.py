@@ -319,6 +319,22 @@ def display_single_result(system_selector, system, query, system_name):
                 
                 st.success(f"✅ 검색 완료 ({end_time - start_time:.2f}초)")
                 
+                # 질문 분류 정보 표시
+                if response.get('question_classification'):
+                    classification = response['question_classification']
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.info(f"**질문 유형**: {classification['type']}")
+                    with col2:
+                        st.info(f"**신뢰도**: {classification['confidence']:.2f}")
+                    with col3:
+                        st.info(f"**프롬프트**: {classification['prompt_type']}")
+                    
+                    # 분류 근거 표시
+                    if classification.get('reasoning'):
+                        with st.expander("📝 분류 근거"):
+                            st.write(classification['reasoning'])
+                
                 # 답변 표시
                 if response.get('answer'):
                     st.markdown("### 🤖 AI 답변")
@@ -399,6 +415,11 @@ def display_comparison_results(system_selector, query):
                 # ChromaDB 결과는 이제 SystemSelector.ask()의 응답 형태
                 chromadb_result = results["chromadb"]
                 if isinstance(chromadb_result, dict):
+                    # 질문 분류 정보 표시
+                    if chromadb_result.get('question_classification'):
+                        classification = chromadb_result['question_classification']
+                        st.info(f"**질문 유형**: {classification['type']} (신뢰도: {classification['confidence']:.2f})")
+                    
                     # AI 답변 표시
                     if chromadb_result.get('answer'):
                         st.markdown("**🤖 AI 답변:**")

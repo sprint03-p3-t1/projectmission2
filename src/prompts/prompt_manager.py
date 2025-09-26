@@ -228,6 +228,29 @@ class PromptManager:
             logger.error(f"Failed to read user template: {e}")
             return self._get_default_user_template()
     
+    def get_user_template_by_type(self, question_type: str = "general", version: str = None) -> str:
+        """질문 유형별 사용자 템플릿 반환"""
+        version = version or self.current_version
+        version_info = self.get_version_info(version)
+        
+        if not version_info:
+            logger.error(f"Version {version} not found")
+            return self._get_default_user_template()
+        
+        # 질문 유형별 템플릿 파일 경로 생성
+        type_template_file = self.versions_dir / f"user_template_{question_type}.txt"
+        
+        # 유형별 템플릿이 있으면 사용
+        if type_template_file.exists():
+            try:
+                with open(type_template_file, 'r', encoding='utf-8') as f:
+                    return f.read().strip()
+            except Exception as e:
+                logger.error(f"Failed to read type-specific template: {e}")
+        
+        # 기본 템플릿 반환
+        return self.get_user_template(version)
+    
     def get_question_generation_prompt(self, version: str = None) -> str:
         """질문 생성 프롬프트 반환"""
         version = version or self.current_version
