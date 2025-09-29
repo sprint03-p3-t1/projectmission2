@@ -28,8 +28,8 @@ class RFPGenerator(RAGSystemInterface):
     def __init__(self, api_key: str = None, model: str = None, temperature: float = None, max_tokens: int = None):
         # 환경변수에서 설정값 가져오기
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.model = model or os.getenv("MODEL_NAME", "gpt-3.5-turbo")
-        self.temperature = temperature or float(os.getenv("TEMPERATURE", "0.1"))
+        self.model = model or os.getenv("MODEL_NAME", "gpt-5")
+        self.temperature = temperature or float(os.getenv("TEMPERATURE", "1"))
         self.max_tokens = max_tokens or int(os.getenv("MAX_TOKENS", "2000"))
         
         self.client = None

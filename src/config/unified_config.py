@@ -32,6 +32,7 @@ FAISS_METADATA_PATH = FAISS_CACHE_DIR / "metadata.pkl"
 # ChromaDB 시스템 캐시 경로 (통합 캐시 내부)
 CHROMA_DB_DIR = BASE_DIR / "chroma_db"
 CHROMA_CACHE_DIR = UNIFIED_CACHE_DIR / "chromadb"
+RERANK_CACHE_DIR = CHROMA_CACHE_DIR / "rerank_embeddings"
 CHROMA_JSON_CACHE_PATH = CHROMA_CACHE_DIR / "cached_json_docs.pkl"
 CHROMA_CSV_CACHE_PATH = CHROMA_CACHE_DIR / "cached_csv_docs.pkl"
 CHROMA_BM25_PATH = CHROMA_CACHE_DIR / "bm25_index.pkl"
@@ -43,7 +44,7 @@ CHUNK_CSV_PATH = DATA_DIR / "merged_final.csv"
 # 모델 설정
 FAISS_EMBEDDER_MODEL = "BAAI/bge-m3"
 CHROMA_EMBEDDER_MODEL = "nlpai-lab/KURE-v1"
-CHROMA_RERANKER_MODEL = "amberoad/bert-multilingual-passage-reranking-msmarco"
+CHROMA_RERANKER_MODEL = "BM-K/KoSimCSE-roberta"
 
 @dataclass
 class SystemConfig:
@@ -56,6 +57,7 @@ class SystemConfig:
     reranker_model: Optional[str] = None
     tokenizer_engine: str = "kiwi"
     rerank_max_length: int = 512
+    rerank_cache_dir: Optional[Path] = None
 
 @dataclass
 class UnifiedConfig:
@@ -114,6 +116,7 @@ class UnifiedConfig:
                     embedder_model=CHROMA_EMBEDDER_MODEL,
                     vector_db_type="chromadb",
                     cache_dir=CHROMA_CACHE_DIR,
+                    rerank_cache_dir=RERANK_CACHE_DIR,
                     persist_directory=CHROMA_DB_DIR,
                     reranker_model=CHROMA_RERANKER_MODEL,
                     tokenizer_engine="kiwi",
