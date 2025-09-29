@@ -1,6 +1,8 @@
 from typing import List, Dict, Set, Tuple
 
 def minmax_scale(scores: Dict[str, float], scale_min=0.0, scale_max=10.0) -> Dict[str, float]:
+    if not scores:
+        return {}
     values = list(scores.values())
     min_val, max_val = min(values), max(values)
     if min_val == max_val:
