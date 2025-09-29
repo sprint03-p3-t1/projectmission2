@@ -8,6 +8,7 @@ sentence-transformers>=2.2.0
 
 # ===== LangChain 생태계 =====
 langchain>=0.1.0
+langchain-community>=0.3.30
 langchain-huggingface>=0.3.1
 langchain-chroma>=0.2.6
 langchain-core>=0.3.70
@@ -32,7 +33,6 @@ numpy>=1.21.0
 
 # ===== 비동기 처리 =====
 aiofiles>=23.0.0
-asyncio
 
 # ===== 진행률 표시 =====
 tqdm>=4.64.0
@@ -99,8 +99,7 @@ nbimporter>=0.3.4
 loguru>=0.6.0
 
 # ===== MLOps 및 품질 평가 =====
-# 데이터베이스
-sqlite3  # Python 내장 모듈
+# 데이터베이스 (sqlite3는 Python 내장 모듈)
 # 데이터 분석 및 시각화
 plotly>=5.0.0
 matplotlib>=3.5.0
