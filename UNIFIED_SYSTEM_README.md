@@ -6,7 +6,7 @@
 
 ### 🔄 시스템 선택 및 비교
 - **FAISS 시스템**: 기존의 단순 벡터 검색 시스템
-- **ChromaDB 하이브리드 시스템**: 팀원이 개발한 고급 하이브리드 검색 시스템
+- **ChromaDB 하이브리드 시스템**: 고급 하이브리드 검색 시스템
 - **실시간 비교**: 두 시스템의 결과를 동시에 비교 가능
 
 ### 🎯 시스템별 특징
@@ -41,7 +41,7 @@ python run_unified_system.py
 ### 3. 시스템 선택
 - 좌측 사이드바에서 검색 시스템 선택
 - **FAISS System**: 기존 시스템
-- **ChromaDB Hybrid System**: 팀원 시스템
+- **ChromaDB Hybrid System**: 하이브리드 시스템
 
 ### 4. 검색 모드
 - **단일 모드**: 선택한 시스템으로만 검색
@@ -126,7 +126,7 @@ src/
 ├── unified_streamlit_app.py   # 통합 Streamlit 앱
 ├── rfp_rag_main.py           # 기존 FAISS 시스템
 ├── retrieval/
-│   └── hybrid_retriever.py   # 팀원 ChromaDB 시스템
+│   └── hybrid_retriever.py   # ChromaDB 시스템
 └── generation/
     └── generator.py          # 공통 생성기
 ```

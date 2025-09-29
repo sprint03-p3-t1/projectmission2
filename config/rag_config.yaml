@@ -4,6 +4,7 @@
 data:
   json_dir: "data/preprocess/json"
   output_dir: "data/processed"
+  ops_dir: "data/ops"  # MLOps 데이터 저장소
 
 # 임베딩 설정
 embedding:
@@ -34,23 +35,33 @@ retrieval:
 # LLM 설정
 llm:
   provider: "openai"  # openai, anthropic, local
-  model: "gpt-3.5-turbo"
+  model: "gpt-4.1-mini"  # generation에서 사용하는 모델
   temperature: 0.1
   max_tokens: 2000
   timeout: 30
+  api_key_env: "OPENAI_API_KEY"  # 환경변수명
 
-# 프롬프트 설정
+# 프롬프트 버전 관리 설정
 prompts:
-  system_prompt: |
-    당신은 RFP(제안요청서) 분석 전문가입니다. 
-    정부기관과 기업의 입찰 공고 문서를 분석하여 컨설턴트들이 필요한 정보를 빠르게 파악할 수 있도록 도와주는 역할을 합니다.
+  # 프롬프트 매니저 설정
+  manager:
+    config_path: "prompts/prompt_config.yaml"
+    current_version: "v2"  # 기본 버전
+    enable_ab_testing: true
+    auto_backup: true
+    
+  # 레거시 프롬프트 (하위 호환성)
+  legacy:
+    system_prompt: |
+      당신은 RFP(제안요청서) 분석 전문가입니다. 
+      정부기관과 기업의 입찰 공고 문서를 분석하여 컨설턴트들이 필요한 정보를 빠르게 파악할 수 있도록 도와주는 역할을 합니다.
 
-    다음 원칙을 지켜주세요:
-    1. 제공된 문서 정보만을 바탕으로 정확하게 답변하세요.
-    2. 문서에 없는 내용에 대해서는 "문서에서 해당 정보를 찾을 수 없습니다"라고 명확히 말하세요.
-    3. 사업명, 발주기관, 사업금액, 기간 등 핵심 정보를 포함하여 답변하세요.
-    4. 표나 목록이 있는 경우 구조화하여 보기 쉽게 정리하세요.
-    5. 입찰 참가 자격, 평가 기준, 제출 서류 등 중요한 요구사항은 놓치지 말고 포함하세요.
+      다음 원칙을 지켜주세요:
+      1. 제공된 문서 정보만을 바탕으로 정확하게 답변하세요.
+      2. 문서에 없는 내용에 대해서는 "문서에서 해당 정보를 찾을 수 없습니다"라고 명확히 말하세요.
+      3. 사업명, 발주기관, 사업금액, 기간 등 핵심 정보를 포함하여 답변하세요.
+      4. 표나 목록이 있는 경우 구조화하여 보기 쉽게 정리하세요.
+      5. 입찰 참가 자격, 평가 기준, 제출 서류 등 중요한 요구사항은 놓치지 말고 포함하세요.
 
 # 로깅 설정
 logging:
@@ -69,3 +80,28 @@ performance:
   enable_gpu: false
   num_workers: 4
   batch_processing: true
+
+# UI 설정
+ui:
+  # 한글 폰트 설정
+  korean_font:
+    path: "NanumGothic.ttf"  # 프로젝트 루트 기준 상대경로
+    fallback_fonts: ["NanumGothic", "NanumBarunGothic", "Malgun Gothic", "AppleGothic", "Noto Sans CJK KR"]
+    enable_font_cache: true
+
+# MLOps 설정
+mlops:
+  conversation_logs_db: "data/ops/conversation_logs.db"
+  quality_metrics_db: "data/ops/quality_metrics.db"
+  monitoring_interval: 300  # 5분
+  enable_quality_evaluation: true
+  enable_conversation_logging: true
+  conversation_history_limit: 6  # 최근 대화 히스토리 유지 개수
+  alert_thresholds:
+    overall_score_low: 0.6
+    overall_score_critical: 0.4
+    accuracy_score_low: 0.5
+    relevance_score_low: 0.5
+    completeness_score_low: 0.5
+    clarity_score_low: 0.5
+    structure_score_low: 0.5

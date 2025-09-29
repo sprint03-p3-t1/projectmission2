@@ -1,3 +1,5 @@
+# projectmission2/src/data_processing/hwp/single/hwp_converter.py
+
 from config.data_preprocess_config import HWP5PROC_EXECUTABLE
 import os
 import subprocess
@@ -52,9 +54,14 @@ def convert_hwp_single_file(input_path, output_directory, hwp5proc_executable):
         print("❌ hwp5proc 실행 중 오류가 발생했습니다.")
         print(f"   명령어: {' '.join(e.cmd)}")
         print(f"   반환 코드: {e.returncode}")
-        print(f"   표준 출력:\n{e.stdout}")
+        print(f"   표준 출력:\n{e.stdout[:500]}...")
         print(f"   표준 오류:\n{e.stderr}")
+        return None
+        
     except FileNotFoundError:
         print(f"❌ 오류: hwp5proc 실행 파일을 찾을 수 없습니다. '{hwp5proc_executable}' 경로를 확인해주세요.")
+        return None
+        
     except Exception as e:
         print(f"❌ 예기치 않은 오류가 발생했습니다: {e}")
+        return None

@@ -1,7 +1,6 @@
 """
 검색 모듈
 문서 청킹, 임베딩, 벡터 검색을 통합하는 리트리버
-팀원 작업 영역
 """
 
 import os
@@ -21,7 +20,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class RFPRetriever(RAGSystemInterface):
-    """RFP 특화 검색기 - 팀원 작업 영역"""
+    """RFP 특화 검색기"""
     
     def __init__(self, embedding_model: str = None, chunk_size: int = 1000, overlap: int = 200, enable_cache: bool = True, cache_dir: str = None):
         # 환경변수에서 임베딩 모델 가져오기
@@ -177,7 +176,7 @@ class RFPRetriever(RAGSystemInterface):
             return self.cache_manager.get_cache_info()
         return {"status": "cache_disabled"}
 
-# 팀원을 위한 사용 예시 및 테스트 함수들
+# 사용 예시 및 테스트 함수들
 def test_retriever_standalone():
     """리트리버 단독 테스트 함수"""
     from data_processing import RFPDataLoader
