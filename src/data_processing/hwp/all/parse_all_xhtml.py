@@ -1,10 +1,11 @@
-# projectmission2/src/data_processing/hwp/single/xhtml_parser.py
+# projectmission2/src/data_processing/hwp/all/parse_all_hwp.py
 
-from bs4 import BeautifulSoup
-import re
 import os
+from bs4 import BeautifulSoup
+from typing import Dict, Any, List
+import re
 
-def parse_hwp5proc_xhtml(file_path, verbose=True):
+def parse_hwp5proc_xhtml(file_path):
     """
     hwp5proc으로 변환된 XHTML 파일을 파싱하여 구조화된 데이터로 변환
     
@@ -39,6 +40,7 @@ def parse_hwp5proc_xhtml(file_path, verbose=True):
     
     # 1. 표(TableControl) 추출
     tables = soup.find_all('TableControl')
+    print(f"발견된 표 개수: {len(tables)}")
     
     for i, table in enumerate(tables):
         table_data = extract_table_structure(table, table_id=i)
@@ -47,6 +49,7 @@ def parse_hwp5proc_xhtml(file_path, verbose=True):
     
     # 2. 일반 텍스트 문단 추출
     paragraphs = soup.find_all('Paragraph')
+    print(f"발견된 문단 개수: {len(paragraphs)}")
     
     for i, para in enumerate(paragraphs):
         text_content = extract_paragraph_text(para, para_id=i)
@@ -56,13 +59,8 @@ def parse_hwp5proc_xhtml(file_path, verbose=True):
     # 메타데이터 업데이트
     parsed_data['metadata']['total_paragraphs'] = len(parsed_data['sections'])
     parsed_data['metadata']['total_tables'] = len(parsed_data['tables'])
-
-    if verbose:
-        print(f"발견된 표 개수: {len(tables)}")
-        print(f"발견된 문단 개수: {len(paragraphs)}")
-        print(f"최종 파싱 결과 - 문단: {len(parsed_data['sections'])} 개, 표: {len(parsed_data['tables'])} 개")
-        
-    print("파싱 완료")
+    
+    print(f"파싱 완료 - 문단: {len(parsed_data['sections'])}, 표: {len(parsed_data['tables'])}")
     return parsed_data
 
 def extract_table_structure(table_element, table_id):
@@ -182,3 +180,47 @@ def convert_table_to_natural_language(table_rows):
                     natural_text.append(", ".join(row_text))
     
     return ". ".join(natural_text)
+
+# # 실제 파일로 테스트 실행
+# def main():
+#     # 실제 경로
+#     xhtml_file_path = '../data/processed/datapreprocessingbjs(hwp5proc)/all_xhtml/(재)예술경영지원센터_통합 정보시스템 구축 사전 컨설팅.xhtml'
+    
+    
+#     # 파일 존재 확인
+#     if not os.path.exists(xhtml_file_path):
+#         print(f"파일을 찾을 수 없습니다: {xhtml_file_path}")
+#         return
+    
+#     # 파싱 실행
+#     parsed_result = parse_hwp5proc_xhtml(xhtml_file_path)
+    
+#     # 결과 출력
+#     print("\n=== 파싱 결과 요약 ===")
+#     print(f"추출된 문단 수: {len(parsed_result['sections'])}")
+#     print(f"추출된 표 수: {len(parsed_result['tables'])}")
+#     print(f"파일 크기: {parsed_result['metadata']['file_size']:,} bytes")
+    
+#     # 첫 번째 표 샘플 출력 (추진일정표)
+#     if parsed_result['tables']:
+#         print("\n=== 첫 번째 표 샘플 ===")
+#         first_table = parsed_result['tables'][0]
+#         print(f"표 ID: {first_table['id']}")
+#         print(f"행 수: {len(first_table['rows'])}")
+#         if first_table['raw_content']:
+#             print("자연어 변환 결과:")
+#             print(first_table['raw_content'][:500] + "..." if len(first_table['raw_content']) > 500 else first_table['raw_content'])
+    
+#     # 첫 번째 문단 샘플 출력
+#     if parsed_result['sections']:
+#         print("\n=== 첫 번째 문단 샘플 ===")
+#         first_section = parsed_result['sections'][0]
+#         print(f"문단 ID: {first_section['id']}")
+#         content = first_section['content']
+#         print("내용:", content[:200] + "..." if len(content) > 200 else content)
+    
+#     return parsed_result
+
+# # 실행
+# if __name__ == "__main__":
+#     result = main()

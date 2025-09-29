@@ -1,4 +1,10 @@
-def convert_all_hwps_in_folder(input_directory, output_directory):
+# projectmission2/src/data_processing/hwp/all/convert_all_hwp_to_xhtml.py
+
+from config.all_data_preprocessing_config import HWP5PROC_EXECUTABLE
+import os
+import subprocess
+
+def convert_all_hwps_in_folder(input_directory, output_directory, hwp5proc_executable):
     """
     지정된 디렉터리 내의 모든 HWP 파일을 외부 hwp5proc 명령어로 XHTML로 변환합니다.
 
@@ -12,7 +18,7 @@ def convert_all_hwps_in_folder(input_directory, output_directory):
         print(f"출력 디렉터리가 없어 생성했습니다: {output_directory}")
 
     # 2. hwp5proc 실행 파일 경로 설정 (사용자 환경에 맞게 수정 필요)
-    hwp5proc_executable = "/home/spai0323/myenv/bin/hwp5proc" # <-- 이 경로를 실제 사용하시는 경로로 수정해주세요.
+    # hwp5proc_executable = HWP5PROC_EXECUTABLE # <-- 이 경로를 실제 사용하시는 경로로 수정해주세요.
 
     print(f"HWP 파일 일괄 변환 시작 (입력 폴더: {input_directory})")
 
@@ -82,5 +88,18 @@ def convert_all_hwps_in_folder(input_directory, output_directory):
         print("모든 HWP 파일 변환에 성공했습니다.")
 
 if __name__ == "__main__":
-    test_files = ["sample1.hwp"]
-    print(load_hwp_files(test_files))
+    # 이 스크립트가 직접 실행될 때만 아래 코드를 실행합니다.
+    # 사용 예시:
+    # 1. 'input_hwp' 폴더에 변환할 HWP 파일을 넣어주세요.
+    # 2. 'output_xhtml' 폴더에 변환된 XHTML 파일이 저장됩니다.
+    
+    # 예시 입력 및 출력 디렉터리 경로를 설정합니다.
+    # 이 부분은 필요에 따라 수정하여 사용하세요.
+    # --- 실행 부분 ---
+    # HWP 파일이 있는 입력 폴더 경로
+    input_folder = '../data/raw/files'
+    # 변환된 XHTML 파일을 저장할 출력 디렉터리
+    output_directory_batch = '../data/processed/datapreprocessingbjs(hwp5proc)/all_xhtml'
+    
+    # 함수 호출
+    convert_all_hwps_in_folder(input_folder, output_directory_batch, HWP5PROC_EXECUTABLE)

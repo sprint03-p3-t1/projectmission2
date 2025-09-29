@@ -1,0 +1,35 @@
+# projectmission2/config/pdf_data_preprocess_config.py
+
+import os
+from pathlib import Path
+# ------------------------
+# 프로젝트 기본 경로
+# ------------------------
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+# 원본 HWP 파일이 있는 디렉터리
+RAW_DIR = PROJECT_ROOT / "data/raw/files"
+
+# 전처리된 데이터가 저장될 디렉터리
+PROCESSED_DIR = PROJECT_ROOT / "data/processed/datapreprocessingbjs(pdfplumber)"
+
+# ------------------------
+# HWP → XHTML 변환 설정
+# ------------------------
+# hwp5proc 실행 파일 경로 (사용자 환경에 맞게 수정 필요)
+HWP5PROC_EXECUTABLE = "/home/spai0323/myenv/bin/hwp5proc"
+
+# ------------------------
+# JSON 저장 설정
+# ------------------------
+ALL_JSON_DIR = PROJECT_ROOT / "data/processed/datapreprocessingbjs(hwp5proc)/processed_json"
+ALL_PROCESSED_JSON_FILE = PROJECT_ROOT / "data/processed/datapreprocessingbjs(hwp5proc)/all_processed.json"
+# ------------------------
+# 청크 설정
+# ------------------------
+# 한 청크당 최대 토큰 수 (문단 분할 기준)
+MAX_CHUNK_SIZE = 1000
+
+# ------------------------
+# 기타 설정
+# ------------------------
