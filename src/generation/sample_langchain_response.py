@@ -30,18 +30,27 @@ def get_qa_chain():
     return LLMChain(llm=llm, prompt=prompt)
 
 # 문서 병합 함수
+
 def merge_docs_to_text(docs):
     """
     의미 기반 검색 결과(Document 리스트)를 받아서
     LLM context로 합치는 함수.
-    (문서 전체 내용을 합침, 잘라내기 제한 없음 : 필요시 제한.)
+    metadata 전체와 page_content를 함께 포함시킴
     """
     if not docs:
         return ""
 
     merged = []
     for doc in docs:
-        text = doc.page_content.strip()
-        merged.append(f"[출처: {doc.metadata.get('파일명', '❓')}]\n{text}")
+        # 🔹 메타데이터를 텍스트로 변환
+        metadata_text = "\n".join([f"{k}: {v}" for k, v in doc.metadata.items()])
+        # 🔹 본문 내용
+        content = doc.page_content.strip()
+        # 🔹 병합
+        merged.append(
+            f"[출처: {doc.metadata.get('파일명', '❓')}]\n\n"
+            f"{metadata_text}\n\n"
+            f"사업 요약:\n{content}"
+        )
 
-    return "\n\n".join(merged)
+    return "\n\n---\n\n".join(merged)

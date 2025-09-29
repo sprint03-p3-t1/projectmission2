@@ -26,14 +26,6 @@ from .rerank import RerankModel
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-class RetrieverError(Exception):
-    """Retriever에서 발생하는 예외를 위한 기본 클래스"""
-    pass
-
-class ChunkLoadingError(RetrieverError):
-    """JSON 청크 로딩 실패 시 발생하는 예외"""
-    pass
-
 
 class Retriever:
     def __init__(self,
@@ -378,7 +370,11 @@ class Retriever:
         if not self.reranker:
             logging.warning("⚠️ 재순위화 모델이 로드되지 않았습니다. 점수가 0으로 반환됩니다.")
             return {self.get_doc_key(doc): 0.0 for doc in documents}
-        
+
+        if not documents:
+            logging.info("ℹ️ 재순위화할 문서가 없어 빈 결과를 반환합니다.")
+            return {}
+            
         texts_to_rerank = [doc.page_content[:self.rerank_max_length] for doc in documents]
         base_scores = self.reranker.rerank(query, texts_to_rerank)
     
@@ -462,51 +458,62 @@ class Retriever:
         return list(merged.values()), bm25_scores
     
     def hybrid_search(self, query: str, top_k: int = 3, candidate_size: int = 10,
-                      filter_dict: Dict = None, candidate_filenames: List[str] = None) -> List[Document]:
-        """하이브리드 검색: 벡터 + BM25 + 재순위화 + 필터링"""
+                     candidate_filenames: List[str] = None) -> List[Document]:
+        """하이브리드 검색: BM25 + 벡터 + rerank (후보군이 있으면 그 안에서만 실행)"""
         if self.db is None:
             raise ValueError("Vector DB가 초기화되지 않았습니다.")
         if not self.bm25_ready:
             raise ValueError("BM25 인덱스가 준비되지 않았습니다.")
     
-        if filter_dict:
-            logging.info(f"🔍 하이브리드 필터 적용: {filter_dict}")
-    
-        # 1. 단순 필터 (=)만 추출
-        simple_filter = {
-            key: val["value"]
-            for key, val in filter_dict.items()
-            if val.get("operator") == "=" and key != "사업 요약"
-        } or None
-    
-        # 2. 벡터 + BM25 검색
-        vector_results = self.db.similarity_search(query, k=candidate_size, filter=simple_filter)
-        bm25_results = self.bm25_search(query, k=candidate_size, filter=simple_filter)
-        
-        # 3. 파일명 기반 후보 제한 (metadata 쿼리일 때만 적용됨)
+        # 1. 기본 검색
+        vector_results = self.db.similarity_search(query, k=candidate_size, filter=None)
+        bm25_results = self.bm25_search(query, k=candidate_size, filter=None)
+
+        logging.info(f"📁 벡터 검색 결과 파일명: {[doc.metadata.get('파일명') for doc in vector_results]}")
+
+         # 2. 후보군 필터링
         if candidate_filenames:
+            logging.info(f"📁 후보군 제한 적용: {len(candidate_filenames)}개")
             vector_results = [doc for doc in vector_results if doc.metadata.get("파일명") in candidate_filenames]
             bm25_results = [(score, doc) for score, doc in bm25_results if doc.metadata.get("파일명") in candidate_filenames]
-            logging.info(f"📁 파일명 기반 후보 제한 적용됨: {len(candidate_filenames)}개")
-
-        # 4. 결과 병합
+    
+            # ✅ fallback: 후보군이 검색 결과에 아예 없으면 meta_df 기반 dummy 문서라도 추가
+            if not vector_results and not bm25_results:
+                logging.warning("⚠️ 후보군이 검색 결과에 없음 → meta_df 후보군 강제 추가")
+                candidate_chunks = []
+                for fname in candidate_filenames:
+                    try:
+                        # meta_df에서 row 찾아 dummy Document 생성
+                        row = self.meta_df[self.meta_df["파일명"] == fname].iloc[0].to_dict()
+                        
+                        # page_content는 '사업 요약'만 쓰고, metadata에서는 제거
+                        page_content = row.get("사업 요약", "")
+                        
+                        # metadata에서 '사업 요약' 키 제거 (중복 방지)
+                        metadata = {k: v for k, v in row.items() if k != "사업 요약"}
+                        
+                        doc = Document(page_content=page_content, metadata=metadata)
+                        candidate_chunks.append(doc)
+                    except Exception as e:
+                        logging.error(f"❌ 후보군 강제 추가 실패: {fname}, {e}")
+    
+                if candidate_chunks:
+                    vector_results = candidate_chunks  # 강제 투입
+        
+        # 3. 결과 병합
         merged_docs, bm25_scores = self._merge_search_results(vector_results, bm25_results)
+
+        if not merged_docs:
+            logging.warning("⚠️ 검색 결과 없음 → 빈 결과 반환")
+            return []
     
-        # 5. 고급 조건 필터링 (>, < 등)
-        filtered_docs = [doc for doc in merged_docs if check_filter_match(doc.metadata, filter_dict)]
-        logging.info(f"✅ 고급 필터링 후 문서 수: {len(filtered_docs)}")
+        # 4. rerank
+        rerank_scores = self.rerank_documents(query, merged_docs)
     
-        final_docs_to_score = filtered_docs if filtered_docs else merged_docs
-        if not filtered_docs:
-            logging.warning(f"⚠️ 필터링 결과 없음 → 원본 결과에서 상위 {top_k}개 반환")
-    
-        # 6. 재순위화
-        rerank_scores = self.rerank_documents(query, final_docs_to_score)
-    
-        # 7. 최종 점수 계산 및 정렬
-        scored_docs = self._calculate_combined_scores(final_docs_to_score, query, bm25_scores, rerank_scores)
+        # 5. 점수 계산 + 정렬
+        scored_docs = self._calculate_combined_scores(merged_docs, query, bm25_scores, rerank_scores)
         final_results = sorted(scored_docs, key=lambda x: x[0], reverse=True)
-    
+        
         if self.debug_mode:
             self._debug_print_scores([doc for _, doc in final_results], "하이브리드 검색")
     
@@ -545,13 +552,13 @@ class Retriever:
         # 2. 쿼리 유형 판단
         query_type = self.detect_query_type(query, filters)
     
-        # 3. 발주기관 키워드 제거
+        # 3. 발주기관 제거 (쿼리에서 직접 빼줌)
         if filters.get("발주 기관"):
             agency_name = filters["발주 기관"]["value"]
             query = re.sub(rf"\b{re.escape(agency_name)}\b", "", query).strip()
             logging.info(f"🧹 쿼리에서 발주기관 키워드 제거됨: '{agency_name}'")
     
-        # 4. 메타데이터 기반 필터링 (metadata 쿼리일 때만)
+        # 4. 메타데이터 기반 후보군 뽑기
         matched_records = []
         candidate_filenames = None
         if query_type == "metadata" and self.meta_df is not None:
@@ -573,9 +580,9 @@ class Retriever:
             query=query,
             top_k=top_k,
             candidate_size=candidate_size,
-            filter_dict=filters,
             candidate_filenames=candidate_filenames
         )
         
         return matched_records, semantic_docs
+        
         
