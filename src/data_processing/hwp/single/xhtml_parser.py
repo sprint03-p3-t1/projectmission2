@@ -1,8 +1,10 @@
+# projectmission2/src/data_processing/hwp/single/xhtml_parser.py
+
 from bs4 import BeautifulSoup
 import re
 import os
 
-def parse_hwp5proc_xhtml(file_path):
+def parse_hwp5proc_xhtml(file_path, verbose=True):
     """
     hwp5proc으로 변환된 XHTML 파일을 파싱하여 구조화된 데이터로 변환
     
@@ -37,7 +39,6 @@ def parse_hwp5proc_xhtml(file_path):
     
     # 1. 표(TableControl) 추출
     tables = soup.find_all('TableControl')
-    print(f"발견된 표 개수: {len(tables)}")
     
     for i, table in enumerate(tables):
         table_data = extract_table_structure(table, table_id=i)
@@ -46,7 +47,6 @@ def parse_hwp5proc_xhtml(file_path):
     
     # 2. 일반 텍스트 문단 추출
     paragraphs = soup.find_all('Paragraph')
-    print(f"발견된 문단 개수: {len(paragraphs)}")
     
     for i, para in enumerate(paragraphs):
         text_content = extract_paragraph_text(para, para_id=i)
@@ -56,8 +56,13 @@ def parse_hwp5proc_xhtml(file_path):
     # 메타데이터 업데이트
     parsed_data['metadata']['total_paragraphs'] = len(parsed_data['sections'])
     parsed_data['metadata']['total_tables'] = len(parsed_data['tables'])
-    
-    print(f"파싱 완료 - 문단: {len(parsed_data['sections'])}, 표: {len(parsed_data['tables'])}")
+
+    if verbose:
+        print(f"발견된 표 개수: {len(tables)}")
+        print(f"발견된 문단 개수: {len(paragraphs)}")
+        print(f"최종 파싱 결과 - 문단: {len(parsed_data['sections'])} 개, 표: {len(parsed_data['tables'])} 개")
+        
+    print("파싱 완료")
     return parsed_data
 
 def extract_table_structure(table_element, table_id):

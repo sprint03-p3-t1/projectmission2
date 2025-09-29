@@ -1,3 +1,5 @@
+# projectmission2/src/data_processing/hwp/single/chunking.py
+
 import re
 from typing import List, Dict, Any
 
@@ -173,7 +175,10 @@ def analyze_chunks(chunks: List[Dict[str, Any]]) -> None:
     print("세부 타입별 분포:", subtype_counts)
     print("우선순위별 분포:", priority_counts)
 
-def main_chunking(parsed_result: Dict[str, Any], max_chunk_size:int=1000) -> List[Dict[str,Any]]:
+def main_chunking(parsed_result: Dict[str, Any], max_chunk_size:int=1000, verbose=True) -> List[Dict[str,Any]]:
+    print("청킹 시작")
     chunks = create_structured_chunks(parsed_result, max_chunk_size=max_chunk_size)
-    analyze_chunks(chunks)
+    if verbose:
+        analyze_chunks(chunks)
+    print("청킹 완료")
     return chunks
