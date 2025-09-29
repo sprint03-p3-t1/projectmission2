@@ -81,7 +81,7 @@ class SystemSelector:
             raise
     
     def _initialize_chromadb_system(self) -> Retriever:
-        """팀원 ChromaDB 시스템 초기화"""
+        """ChromaDB 시스템 초기화"""
         try:
             import pandas as pd
             from langchain_huggingface import HuggingFaceEmbeddings
@@ -235,7 +235,7 @@ class SystemSelector:
         logger.info(f"✅ {system_name} 시스템 캐시 정리 완료")
     
     def ask(self, question: str, system_name: str = None) -> Dict[str, Any]:
-        """선택된 시스템으로 질문 처리"""
+        """선택된 시스템으로 질문 처리 (질문 분류 단계 포함)"""
         if system_name is None:
             system_name = self._current_system
             
@@ -248,35 +248,118 @@ class SystemSelector:
             
         system = self._systems[system_name]
         
+        # 1. 질문 분류 단계 추가
+        logger.info(f"🔍 질문 분류 시작: {question[:50]}...")
+        try:
+            from src.classification.question_classifier import get_question_classifier
+            classifier = get_question_classifier()
+            classification_result = classifier.classify_question(question)
+            
+            logger.info(f"✅ 질문 분류 완료: {classification_result.question_type.value} (신뢰도: {classification_result.confidence:.3f})")
+            logger.info(f"📝 분류 근거: {classification_result.reasoning}")
+            logger.info(f"🎯 제안 프롬프트 타입: {classification_result.suggested_prompt_type}")
+
+            # 일상 질문인 경우 RFP 문서 검색 없이 간단히 응답
+            if classification_result.question_type.value == "일상":
+                logger.info("💬 일상 질문으로 분류됨 - RFP 문서 검색 생략")
+                return {
+                    "answer": "안녕하세요! RFP 문서 분석 도구에 오신 것을 환영합니다. 궁금한 사업 정보나 입찰 관련 질문이 있으시면 언제든지 말씀해 주세요.",
+                    "sources": [],
+                    "total_documents": 0,
+                    "total_chunks": 0,
+                    "question_classification": {
+                        "type": classification_result.question_type.value,
+                        "confidence": classification_result.confidence,
+                        "reasoning": classification_result.reasoning,
+                        "prompt_type": classification_result.suggested_prompt_type
+                    }
+                }
+
+        except Exception as e:
+            logger.error(f"❌ 질문 분류 실패: {e}")
+            # 분류 실패 시 기본값 사용
+            classification_result = None
+        
         try:
             if system_name == "faiss":
-                # FAISS 시스템 질문 처리
+                # FAISS 시스템 질문 처리 (질문 분류 결과 적용)
+                logger.info(f"🔍 FAISS 시스템 질문 처리 시작: {question[:50]}...")
+                
+                # 질문 분류 결과를 FAISS 시스템에 전달
+                if classification_result:
+                    # RFPGenerator에 질문 유형 설정
+                    if hasattr(system, 'generator') and hasattr(system.generator, 'question_type'):
+                        system.generator.question_type = classification_result.suggested_prompt_type
+                        logger.info(f"🎯 FAISS Generator에 질문 유형 적용: {classification_result.suggested_prompt_type}")
+                
                 response = system.ask_detailed(question)
+                logger.info(f"✅ FAISS 답변 생성 완료: {response.answer[:100]}...")
+                
                 return {
                     "answer": response.answer,
                     "sources": [
                         {
-                            "content": chunk.content,
-                            "source_file": chunk.metadata.get("source_file", "N/A"),
-                            "page": chunk.metadata.get("page", "N/A"),
-                            "score": chunk.score
+                            "content": chunk.get("content", "N/A"),
+                            "source_file": chunk.get("source_file", "N/A"),
+                            "page": chunk.get("page", "N/A"),
+                            "score": chunk.get("score", 0.0)
                         }
                         for chunk in response.retrieved_chunks
                     ],
-                    "total_documents": system.retriever.get_total_documents(),
-                    "total_chunks": system.retriever.get_total_chunks()
+                    "total_documents": len(system.documents),
+                    "total_chunks": len(system.retriever.vector_store.chunks) if hasattr(system.retriever, 'vector_store') else 0,
+                    "question_classification": {
+                        "type": classification_result.question_type.value if classification_result else "unknown",
+                        "confidence": classification_result.confidence if classification_result else 0.0,
+                        "reasoning": classification_result.reasoning if classification_result else "분류 실패",
+                        "prompt_type": classification_result.suggested_prompt_type if classification_result else "general"
+                    }
                 }
             elif system_name == "chromadb":
                 # ChromaDB 시스템 질문 처리
+                logger.info(f"🔍 ChromaDB 시스템 질문 처리 시작: {question[:50]}...")
                 results = system.smart_search(question, top_k=5)
+                logger.info(f"✅ ChromaDB 검색 완료: {len(results)}개 결과")
                 
-                # LLM을 사용하여 답변 생성
+                # LLM을 사용하여 답변 생성 (프롬프트 매니저 적용)
+                logger.info("🤖 LLM 답변 생성 시작...")
                 from src.generation.generator import RFPGenerator
-                generator = RFPGenerator(
-                    model_name=self.config.get_system_config("faiss").llm_model,
-                    api_key=self.config.openai_api_key
-                )
-                llm_response = generator.generate_response(question, results)
+                generator = RFPGenerator()  # rag_config.yaml에서 자동으로 설정 로드
+                
+                # Generator 초기화
+                logger.info("🔧 RFPGenerator 초기화 중...")
+                generator.initialize()
+                logger.info("✅ RFPGenerator 초기화 완료")
+                
+                # 프롬프트 매니저 초기화
+                logger.info("📝 프롬프트 매니저 초기화 중...")
+                from src.prompts.prompt_manager import get_prompt_manager
+                prompt_manager = get_prompt_manager()
+                generator.prompt_manager = prompt_manager
+                logger.info(f"✅ 프롬프트 매니저 초기화 완료: {prompt_manager.current_version}")
+                
+                # 질문 분류 결과를 프롬프트 매니저에 전달
+                if classification_result:
+                    generator.question_type = classification_result.suggested_prompt_type
+                    logger.info(f"🎯 질문 유형 기반 프롬프트 적용: {classification_result.suggested_prompt_type}")
+                
+                # 검색 결과를 RetrievalResult 형태로 변환
+                from src.data_processing.data_models import RetrievalResult, DocumentChunk
+                retrieval_results = []
+                for i, doc in enumerate(results):
+                    chunk = DocumentChunk(
+                        chunk_id=f"chromadb_{i}",
+                        doc_id=doc.metadata.get("source_file", "unknown"),
+                        content=doc.page_content,
+                        chunk_type="text",
+                        metadata=doc.metadata
+                    )
+                    score = system.last_scores.get(system.get_doc_key(doc), {}).get("combined", 0.0)
+                    retrieval_results.append(RetrievalResult(chunk=chunk, score=score, rank=i+1))
+                
+                logger.info(f"🔄 {len(retrieval_results)}개 검색 결과를 RetrievalResult로 변환 완료")
+                llm_response = generator.generate_response(question, retrieval_results)
+                logger.info(f"✅ LLM 답변 생성 완료: {llm_response.answer[:100]}...")
                 
                 return {
                     "answer": llm_response.answer,
@@ -290,7 +373,13 @@ class SystemSelector:
                         for doc in results
                     ],
                     "total_documents": len(system.documents),
-                    "total_chunks": len(system.documents)
+                    "total_chunks": len(system.documents),
+                    "question_classification": {
+                        "type": classification_result.question_type.value if classification_result else "unknown",
+                        "confidence": classification_result.confidence if classification_result else 0.0,
+                        "reasoning": classification_result.reasoning if classification_result else "분류 실패",
+                        "prompt_type": classification_result.suggested_prompt_type if classification_result else "general"
+                    }
                 }
             else:
                 return {"answer": "지원하지 않는 시스템입니다.", "sources": []}

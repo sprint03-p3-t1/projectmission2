@@ -1,0 +1,57 @@
+current_version: v3
+evaluation:
+  comparison_period_days: 30
+  enable_ab_testing: true
+  metrics:
+  - response_quality
+  - user_satisfaction
+  - accuracy
+  - completeness
+  - expertise
+  - creativity
+  - feasibility
+  - risk_analysis
+management:
+  auto_backup: true
+  backup_interval_days: 7
+  enable_rollback: true
+  max_versions: 10
+versions:
+  v1:
+    author: system
+    created_date: '2025-09-24'
+    description: 기본적인 RFP 문서 분석 기능을 제공하는 프롬프트
+    evaluation_prompt_file: v1_evaluation_prompt.txt
+    name: 기본 RFP 분석가
+    system_prompt_file: v1_system_prompt.txt
+    tags:
+    - basic
+    - rfp
+    - analysis
+    user_template_file: v1_user_template.txt
+  v2:
+    author: system
+    created_date: '2025-09-24'
+    description: 컨설턴트 관점에서 전략적 인사이트를 제공하는 고도화된 프롬프트
+    evaluation_prompt_file: v2_evaluation_prompt.txt
+    name: 전략적 RFP 컨설턴트
+    system_prompt_file: v2_system_prompt.txt
+    tags:
+    - strategic
+    - consultant
+    - insights
+    user_template_file: v2_user_template.txt
+  v3:
+    author: system
+    created_date: '2025-09-25'
+    description: LLM 기반 자동 질문 생성 및 고도화된 10개 기준 정성평가 시스템
+    evaluation_prompt_file: v3_advanced_evaluation_prompt.txt
+    name: 자동 평가 전문가
+    question_generation_prompt_file: v3_question_generation_prompt.txt
+    system_prompt_file: v3_system_prompt.txt
+    tags:
+    - auto_evaluation
+    - question_generation
+    - advanced_metrics
+    - comprehensive_analysis
+    user_template_file: v3_user_template.txt
