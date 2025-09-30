@@ -66,6 +66,10 @@ htmlcov/
 # 문서
 docs/_build/
 site/
+data/processed/*
+
+# 예외
+!data/processed/.gitkeep
 
 # 기타
 *.db

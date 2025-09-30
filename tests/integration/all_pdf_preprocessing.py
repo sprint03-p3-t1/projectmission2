@@ -46,7 +46,7 @@ def main():
         )
         print(f"✅ [완료] {pdf_file} \n")
 
-    merged_output_file = os.path.join(ALL_PDF_JSON_DIR, "merged_all_pdfs.json")
+    merged_output_file = os.path.join(PDF_PROCESSED_DIR, "merged_all_pdfs.json")
     
     # 이전 병합 JSON 삭제
     if os.path.exists(merged_output_file):
