@@ -69,7 +69,6 @@ def main():
     print(f"\n✅ 전체 파이프라인 완료 - 총 {len(hwp_files)}개 파일 처리 완료")
 
     # 모든 HWP 처리 결과를 하나로 합치기 
-    all_processed_path = os.path.join(HWP_PROCESSED_DIR, "all_processed_hwp.json")
     all_hwp_data = {}
     for json_file in os.listdir(ALL_HWP_JSON_DIR):
         if json_file.lower().endswith("_processed.json"):
@@ -77,13 +76,15 @@ def main():
             data = load_chunks_from_json(file_path)
             if data:
                 all_hwp_data.update(data)
-    
-    save_processed_data(all_hwp_data, HWP_PROCESSED_DIR, "all_processed_hwp.json")
-    print(f"✅ 모든 HWP JSON을 하나로 합쳐서 저장 완료: {all_processed_path}")
-    
+
     # --- 이제 통합 JSON 기준으로 청크 준비 ---
     prepared_chunks = prepare_chunks_for_embedding(all_hwp_data)
     print(f"✅ 모든 HWP 통합 JSON 기준으로 청크 준비 완료 - 총 {len(prepared_chunks)}개 청크")
+
+    # ✅ 고유 id가 부여된 통합 JSON 저장
+    all_processed_path = os.path.join(HWP_PROCESSED_DIR, "all_processed_hwp.json")
+    save_processed_data(prepared_chunks, HWP_PROCESSED_DIR, "all_processed_hwp.json")
+    print(f"✅ 모든 HWP JSON(고유 id 포함)을 하나로 합쳐서 저장 완료: {all_processed_path}")
 
 if __name__ == "__main__":
     main()
