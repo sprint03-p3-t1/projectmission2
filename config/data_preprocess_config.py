@@ -8,6 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # 원본 HWP 파일이 있는 디렉터리
 RAW_DIR = PROJECT_ROOT / "data/raw/files"
+PROCESSED_DIR = PROJECT_ROOT / "data/processed"
 
 # ========================================================================================================
 # 전처리된 HWP 데이터가 저장될 디렉터리
