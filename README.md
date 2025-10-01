@@ -351,18 +351,23 @@ chore: 기타 작업
 - [x] **대화 맥락**: 연속 질의응답 지원
 - [x] **상세 답변**: 핵심 정보 포함 답변 생성
 
-### 🚀 추가 개선 가능 사항
-- [ ] **멀티쿼리 검색**: 질문을 여러 개로 분해하여 검색
-- [ ] **실시간 모니터링**: 시스템 성능 대시보드
-- [ ] **A/B 테스트**: 두 시스템 성능 비교 분석
-- [ ] **API 서버**: REST API 제공
-- [ ] **배치 처리**: 대량 문서 일괄 처리
 
 ### 📚 상세 문서
 - **검색 시스템**: `src/retrieval/README.md` - 하이브리드 검색 시스템 상세 가이드
 - **생성 시스템**: `src/generation/readme_generation.md` - 답변 생성 모듈 상세 사용법
 - **통합 시스템**: `UNIFIED_SYSTEM_README.md` - 통합 RAG 시스템 사용법
 - **모듈별 문서**: 각 모듈 내부에 상세한 docstring 및 주석 포함
+
+보고서 링크
+- [pdf](https://drive.google.com/file/d/1tLqMWsOmtB4pVXOCCRWYPFlSu7K2gcut/view?usp=sharing)
+- [google slides](https://docs.google.com/presentation/d/1VdI6t4CJZVPwi7_HrSGiNAxfiSCSRq5aIq_18D2DuFY/edit?usp=sharing)
+
+노션 링크
+팀 노션 : https://www.notion.so/Codeit-AI-3-_-1-_-26b55af55ff6801fb04cf4e1a9f3d762
+김도영 (데이터 처리) : https://www.notion.so/26b883ccf74a801b8a72d11cb70642fb?v=26b883ccf74a8029bba4000c0506e8ef
+김지영 (Retrieval) : https://www.notion.so/AI_TeamProject2-26bcf974f5f580f290f1d7f9337a9134
+배진석 (데이터 처리) : https://www.notion.so/part-3-Daily-26b0a966ac278018b302e52ac1a31518
+이영호 (팀장, Generation, Evaluation) : https://www.notion.so/AI_TeamProject2-Daily_-26b55af55ff6801ca78de7479112d932
 
 ---
 
