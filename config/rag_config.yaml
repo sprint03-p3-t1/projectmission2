@@ -46,7 +46,7 @@ prompts:
   # 프롬프트 매니저 설정
   manager:
     config_path: "prompts/prompt_config.yaml"
-    current_version: "v2"  # 기본 버전
+    current_version: "v3"  # 기본 버전
     enable_ab_testing: true
     auto_backup: true
     

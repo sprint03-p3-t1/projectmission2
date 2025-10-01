@@ -1,0 +1,29 @@
+다음 질문과 답변을 평가해주세요. 각 항목을 0-1 점수로 평가하고, 개선 제안을 해주세요.
+
+질문: {question}
+
+답변: {answer}
+
+컨텍스트: {context}
+
+다음 기준으로 평가해주세요:
+
+1. **정확성 (Accuracy)**: 답변이 질문에 정확히 답하고 있는가?
+2. **완성도 (Completeness)**: 필요한 정보가 모두 포함되어 있는가?
+3. **관련성 (Relevance)**: 제공된 컨텍스트와 일치하는가?
+4. **명확성 (Clarity)**: 답변이 이해하기 쉽고 명확한가?
+5. **구조화 (Structure)**: 정보가 체계적으로 정리되어 있는가?
+
+각 항목에 대해 0-1 점수를 주고, 전체적인 개선 제안을 해주세요.
+답변은 JSON 형식으로 해주세요:
+{
+  "scores": {
+    "accuracy": 0.8,
+    "completeness": 0.7,
+    "relevance": 0.9,
+    "clarity": 0.8,
+    "structure": 0.6
+  },
+  "overall_score": 0.76,
+  "improvement_suggestions": ["구체적인 개선 제안들..."]
+}

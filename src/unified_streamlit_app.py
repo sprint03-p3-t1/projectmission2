@@ -406,7 +406,8 @@ def display_comparison_results(system_selector, query):
             
             try:
                 if system_name == "faiss":
-                    response = system.ask(query)
+                    # SystemSelector.ask() 사용 (질문 분류 포함)
+                    response = system_selector.ask(query, system_name)
                     results[system_name] = response
                 elif system_name == "chromadb":
                     # ChromaDB 시스템 (smart_search 방식)
@@ -421,6 +422,7 @@ def display_comparison_results(system_selector, query):
                 
             except Exception as e:
                 st.error(f"❌ {system_name} 시스템 오류: {e}")
+                logger.error(f"System {system_name} error: {e}", exc_info=True)
                 results[system_name] = None
                 times[system_name] = 0
     
@@ -432,7 +434,11 @@ def display_comparison_results(system_selector, query):
             st.markdown("#### 🔵 FAISS 시스템")
             if results.get("faiss"):
                 st.markdown(f"⏱️ 검색 시간: {times.get('faiss', 0):.2f}초")
-                st.markdown(results["faiss"])
+                # response가 dict인 경우 answer 필드 사용
+                if isinstance(results["faiss"], dict):
+                    st.markdown(results["faiss"].get("answer", "답변 없음"))
+                else:
+                    st.markdown(results["faiss"])
             else:
                 st.error("검색 결과 없음")
         
