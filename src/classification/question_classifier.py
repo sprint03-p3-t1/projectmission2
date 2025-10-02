@@ -41,7 +41,7 @@ class QuestionClassifier:
         
         # 질문 유형별 키워드 매핑
         self.type_keywords = {
-            QuestionType.EVERYDAY: ["안녕", "어떻게", "뭐야", "왜", "언제", "어디", "누구", "일반적", "상식"],
+            QuestionType.EVERYDAY: ["안녕", "어떻게", "뭐야", "왜", "언제", "어디", "누구", "일반적", "상식", "날씨", "데이트"],
             QuestionType.STATISTICS: ["몇", "얼마", "수치", "통계", "비율", "퍼센트", "개수", "금액", "예산", "비용"],
             QuestionType.ANALYSIS: ["분석", "비교", "평가", "검토", "검증", "고려사항", "장단점", "특징"],
             QuestionType.SUMMARY: ["요약", "정리", "핵심", "개요", "줄거리", "간단히"],
@@ -165,6 +165,24 @@ class QuestionClassifier:
     def _quick_classify(self, question: str) -> Optional[ClassificationResult]:
         """키워드 기반 빠른 분류"""
         question_lower = question.lower()
+        
+        # 특정 키워드에 대한 강제 분류 (높은 우선순위)
+        high_priority_keywords = {
+            "안녕": QuestionType.EVERYDAY,
+            "날씨": QuestionType.EVERYDAY,
+            "데이트": QuestionType.EVERYDAY,
+            "상식": QuestionType.EVERYDAY
+        }
+        
+        # 고우선순위 키워드 확인
+        for keyword, q_type in high_priority_keywords.items():
+            if keyword in question_lower:
+                return ClassificationResult(
+                    question_type=q_type,
+                    confidence=0.9,  # 높은 신뢰도로 설정
+                    reasoning=f"고우선순위 키워드 매칭: {keyword}",
+                    suggested_prompt_type=self.prompt_type_mapping[q_type]
+                )
         
         # 각 유형별 키워드 매칭 점수 계산
         type_scores = {}

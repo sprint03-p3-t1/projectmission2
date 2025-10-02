@@ -3,7 +3,7 @@
 *.hwp
 *.txt
 *.csv
-*.json
+#*.json
 *.pkl
 *.npy
 *.zip
